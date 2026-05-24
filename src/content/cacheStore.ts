@@ -111,6 +111,7 @@ export class CacheStore {
     const newOrUpdated: CachedUserMessage[] = [];
     const nextMessagesById = new Map<string, CachedUserMessage>(existing.map((message) => [message.localMessageId, message]));
     let candidateIndex = 0;
+    const maxExistingOrderKey = existing.length > 0 ? Math.max(...existing.map((m) => m.orderKey)) : -1;
 
     for (const segment of segments) {
       const segmentIds: string[] = [];
@@ -132,7 +133,7 @@ export class CacheStore {
           lastKnownScrollTop: candidate.scrollTop,
           lastKnownScrollRatio: candidate.scrollRatio,
           orderKey: matched?.orderKey ?? (this.currentCache?.orderMode === 'canonical'
-            ? (existing.length > 0 ? Math.max(...existing.map((m) => m.orderKey)) + 1 + candidateIndex : candidateIndex)
+            ? maxExistingOrderKey + 1 + candidateIndex
             : candidate.absoluteTop)
         };
 
