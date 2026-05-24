@@ -31,7 +31,7 @@ export default defineContentScript({
       const cache = await cacheStore.loadConversation(id);
       runtimeStore.setConversationId(id);
       runtimeStore.setMessages(cache?.messages ?? []);
-      await scanner.rescan();
+      scanner.clearState();
     });
 
     scrollDriver.init();
