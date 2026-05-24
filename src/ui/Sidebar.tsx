@@ -3,7 +3,10 @@ import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
 import type { CachedUserMessage, RuntimeState } from '../shared/types';
 import { MessageItem } from './MessageItem';
+import { MiniBar } from './MiniBar';
 import { SearchBox } from './SearchBox';
+
+type SidebarMode = 'expanded' | 'mini' | 'collapsed';
 
 interface HoverState {
   message: CachedUserMessage;
@@ -17,7 +20,7 @@ interface SidebarProps {
 
 export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
   const [snapshot, setSnapshot] = useState<RuntimeState>(() => runtimeStore.getSnapshot());
-  const [collapsed, setCollapsed] = useState(false);
+  const [mode, setMode] = useState<SidebarMode>('expanded');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [hover, setHover] = useState<HoverState | null>(null);
@@ -35,24 +38,48 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
     return snapshot.messages.filter((message) => message.textForSearch.toLowerCase().includes(query));
   }, [snapshot.messages, searchQuery]);
 
-  if (collapsed) {
+  const handleJump = (target: CachedUserMessage) => void jumpController.jumpToMessage(target);
+
+  // --- 折叠模式 ---
+  if (mode === 'collapsed') {
     return (
       <aside className="cqn-sidebar is-collapsed">
-        <button className="cqn-collapse" type="button" onClick={() => setCollapsed(false)} title="展开导航">
+        <button className="cqn-collapse" type="button" onClick={() => setMode('expanded')} title="展开导航">
           ☰
         </button>
       </aside>
     );
   }
 
+  // --- Mini 模式 ---
+  if (mode === 'mini') {
+    return (
+      <>
+        <MiniBar
+          messages={snapshot.messages}
+          activeMessageId={snapshot.activeMessageId}
+          mountedIds={snapshot.mountedIds}
+          onJump={handleJump}
+          onExpand={() => setMode('expanded')}
+        />
+      </>
+    );
+  }
+
+  // --- 展开模式 ---
   return (
     <>
       <aside className="cqn-sidebar">
         <header className="cqn-header">
           <strong>ChatGPT Navigator</strong>
-          <button className="cqn-collapse" type="button" onClick={() => setCollapsed(true)} title="折叠导航">
-            ×
-          </button>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button className="cqn-collapse" type="button" onClick={() => setMode('mini')} title="Mini 模式">
+              ◫
+            </button>
+            <button className="cqn-collapse" type="button" onClick={() => setMode('collapsed')} title="折叠导航">
+              ×
+            </button>
+          </div>
         </header>
 
         <SearchBox value={searchInput} onChange={setSearchInput} />
@@ -70,7 +97,7 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
               active={snapshot.activeMessageId === message.localMessageId}
               mounted={snapshot.mountedIds.has(message.localMessageId)}
               searchQuery={searchQuery}
-              onClick={(target) => void jumpController.jumpToMessage(target)}
+              onClick={handleJump}
               onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
               onHoverEnd={() => setHover(null)}
             />
