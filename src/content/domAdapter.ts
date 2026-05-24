@@ -4,7 +4,6 @@ const SELECTORS = {
   userMessage: '[data-message-author-role="user"]',
   messageText: '.whitespace-pre-wrap, .message-body, [data-message-author-role] > div',
   excludeButtons: 'button, [role="button"], .copy-button, .edit-button',
-  scrollContainer: 'main .overflow-y-auto, [class*="react-scroll-to-bottom"]'
 } as const;
 
 const OBSERVED_ID_ATTRIBUTES = ['data-id', 'data-message-id'] as const;
@@ -28,16 +27,6 @@ export class DomAdapter {
   extractConversationId(): string | null {
     const match = location.pathname.match(/\/c\/([^/?#]+)/);
     return match?.[1] ?? null;
-  }
-
-  findScrollContainer(): HTMLElement | null {
-    const candidates = Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.scrollContainer));
-    return candidates.find((el) => el.scrollHeight > el.clientHeight) ?? null;
-  }
-
-  isElementInViewport(el: HTMLElement): boolean {
-    const rect = el.getBoundingClientRect();
-    return rect.bottom >= 0 && rect.top <= window.innerHeight;
   }
 
   extractObservedId(el: HTMLElement): string | null {
