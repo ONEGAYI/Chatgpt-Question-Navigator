@@ -3,7 +3,10 @@
 ```
 chatgpt-question-navigator/
 ├── entrypoints/
-│   └── content.ts                  # WXT content script 入口，装配所有模块并启动
+│   ├── content.ts                  # WXT content script 入口，装配所有模块并启动
+│   └── popup/
+│       ├── index.html              # Popup 入口 HTML，WXT 自动注册为 action.default_popup
+│       └── main.tsx                # Preact 挂载点，渲染 PopupApp
 ├── src/
 │   ├── content/
 │   │   ├── cacheStore.ts           # chrome.storage.local 持久化，按会话缓存消息，LRU 清理
@@ -13,6 +16,9 @@ chatgpt-question-navigator/
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
 │   │   ├── scrollDriver.ts         # 滚动容器抽象，区分用户滚动与程序滚动
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
+│   ├── popup/
+│   │   ├── PopupApp.tsx            # Popup 主组件：存储用量仪表、对话列表、缓存操作按钮
+│   │   └── popup.css               # Popup 样式，复用侧栏 CSS 变量体系
 │   ├── shared/
 │   │   ├── hash.ts                 # SHA-256 文本指纹（前 8 字节）
 │   │   ├── text.ts                 # 文本归一化、截断预览、搜索分词高亮
