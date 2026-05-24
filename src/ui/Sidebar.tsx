@@ -18,15 +18,18 @@ interface HoverState {
 interface SidebarProps {
   runtimeStore: RuntimeStore;
   jumpController: JumpController;
+  onClearCurrentSession: () => Promise<void>;
 }
 
-export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
+export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }: SidebarProps) {
   const [snapshot, setSnapshot] = useState<RuntimeState>(() => runtimeStore.getSnapshot());
   const [mode, setMode] = useState<SidebarMode>('expanded');
   const [modeLoaded, setModeLoaded] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot())), [runtimeStore]);
 
@@ -59,6 +62,22 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
   const handleJump = (target: CachedUserMessage) => void jumpController.jumpToMessage(target);
 
   const clearHover = useCallback(() => setHover(null), []);
+
+  const handleClearClick = useCallback(async () => {
+    if (clearing) return;
+    if (!confirmClear) {
+      setConfirmClear(true);
+      window.setTimeout(() => setConfirmClear(false), 2000);
+      return;
+    }
+    setClearing(true);
+    setConfirmClear(false);
+    try {
+      await onClearCurrentSession();
+    } finally {
+      setClearing(false);
+    }
+  }, [confirmClear, clearing, onClearCurrentSession]);
 
   useEffect(() => {
     window.addEventListener('scroll', clearHover, true);
@@ -100,6 +119,23 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
         <header className="cqn-header">
           <strong>ChatGPT Navigator</strong>
           <div style={{ display: 'flex', gap: '4px' }}>
+            {snapshot.conversationId && (
+              <button
+                className={`cqn-collapse ${confirmClear ? 'is-confirming' : ''}`}
+                type="button"
+                onClick={handleClearClick}
+                disabled={clearing}
+                title={confirmClear ? '再次点击确认清除' : '清除当前会话缓存'}
+                style={clearing ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              >
+                {confirmClear ? '?' : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                )}
+              </button>
+            )}
             <button className="cqn-collapse" type="button" onClick={() => handleModeChange('mini')} title="Mini 模式">
               ◫
             </button>
@@ -111,25 +147,33 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
 
         <SearchBox value={searchInput} onChange={setSearchInput} />
 
-        <div className="cqn-status">
-          Indexed {snapshot.messages.length} questions locally
-        </div>
+        {!clearing && (
+          <div className="cqn-status">
+            Indexed {snapshot.messages.length} questions locally
+          </div>
+        )}
 
-        <nav className="cqn-list" aria-label="ChatGPT user questions">
-          {messages.map((message, index) => (
-            <MessageItem
-              key={message.localMessageId}
-              message={message}
-              index={index}
-              active={snapshot.activeMessageId === message.localMessageId}
-              mounted={snapshot.mountedIds.has(message.localMessageId)}
-              searchQuery={searchQuery}
-              onClick={handleJump}
-              onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
-              onHoverEnd={() => setHover(null)}
-            />
-          ))}
-        </nav>
+        {clearing && messages.length === 0 ? (
+          <div className="cqn-list" role="status" aria-live="polite">
+            <div className="cqn-clearing-notice">已清理，即将重新采集当前会话……</div>
+          </div>
+        ) : (
+          <nav className="cqn-list" aria-label="ChatGPT user questions">
+            {messages.map((message, index) => (
+              <MessageItem
+                key={message.localMessageId}
+                message={message}
+                index={index}
+                active={snapshot.activeMessageId === message.localMessageId}
+                mounted={snapshot.mountedIds.has(message.localMessageId)}
+                searchQuery={searchQuery}
+                onClick={handleJump}
+                onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
+                onHoverEnd={() => setHover(null)}
+              />
+            ))}
+          </nav>
+        )}
       </aside>
 
       {hover && (
