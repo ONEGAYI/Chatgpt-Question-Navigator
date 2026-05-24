@@ -65,8 +65,14 @@ export default defineContentScript({
     // 修正 #1: 在 urlWatcher.start() 前读 intent，避免回调竞态
     const intent = await AutoCollector.readIntent();
     const currentConvId = domAdapter.extractConversationId();
+    const INTENT_TTL_MS = 60_000;
     const shouldAutoCollectOnStartup = intent !== null && currentConvId !== null
+      && (Date.now() - intent.requestedAt < INTENT_TTL_MS)
       && (intent.conversationId === currentConvId || intent.url === location.href);
+
+    if (intent !== null) {
+      await AutoCollector.clearIntent();
+    }
 
     if (shouldAutoCollectOnStartup) {
       await AutoCollector.clearIntent();
@@ -81,17 +87,21 @@ export default defineContentScript({
       // Auto-collect 路径：跳过 scanner.start()，等滚动根就绪后启动采集
       let pollAttempts = 0;
       pollId = window.setInterval(async () => {
-        pollAttempts++;
-        scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
-        if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
-          clearInterval(pollId);
-          pollId = undefined;
-          try {
-            await autoCollector.startFullCollection(currentConvId);
-          } catch (e) {
-            console.error('[CQN] Auto-collect failed:', e);
+        try {
+          pollAttempts++;
+          scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
+          if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
+            clearInterval(pollId);
+            pollId = undefined;
+            try {
+              await autoCollector.startFullCollection(currentConvId);
+            } catch (e) {
+              console.error('[CQN] Auto-collect failed:', e);
+            }
+            scanner.start();
           }
-          scanner.start();
+        } catch (e) {
+          console.error('[CQN] Auto-collect poll error:', e);
         }
       }, 1000);
     } else {
@@ -164,6 +174,8 @@ export default defineContentScript({
             .catch((err) => sendResponse({ success: false, error: String(err) }));
           return true;
         }
+        sendResponse({ success: false, error: 'No active conversation' });
+        return false;
       }
     });
 

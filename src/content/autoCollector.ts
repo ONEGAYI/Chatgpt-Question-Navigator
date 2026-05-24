@@ -36,7 +36,6 @@ const SETTLE_QUIET_MS = 400;
 const SETTLE_TIMEOUT_MS = 5000;
 const SETTLE_POLL_MS = 100;
 const NO_NEW_CANDIDATES_LIMIT = 5;
-const ABSOLUTE_TOP_BUCKET = 100;
 
 // --- AutoCollector ---
 
@@ -103,13 +102,12 @@ export class AutoCollector {
       if (this.cancelRequested) { this.setPhase('cancelled'); return; }
 
       const metrics = this.scrollDriver.getMetrics();
+      this.setPhase('collecting');
       if (metrics.maxScrollTop <= 8) {
         const batch = await this.extractCurrentBatch(0);
         await this.finalize([batch], conversationId);
         return;
       }
-
-      this.setPhase('collecting');
 
       const batches: CollectedBatch[] = [];
       let consecutiveNoNew = 0;
@@ -122,7 +120,7 @@ export class AutoCollector {
         for (const c of batch.candidates) {
           const tempKey = c.observedDomMessageId
             ? `dom:${c.observedDomMessageId}`
-            : `hash:${c.textHash}:@${Math.floor(c.absoluteTop / ABSOLUTE_TOP_BUCKET)}`;
+            : `hash:${c.textHash}`;
           if (!seenKeys.has(tempKey)) {
             seenKeys.add(tempKey);
             newCount++;
@@ -199,12 +197,12 @@ export class AutoCollector {
   private setPhase(phase: AutoCollectPhase): void {
     this.phase = phase;
     this.emitProgress();
-    this.runtimeStore.setAutoCollectProgress(this.getProgress());
   }
 
   private emitProgress(): void {
     const progress = this.getProgress();
     this.progressListeners.forEach((listener) => listener(progress));
+    this.runtimeStore.setAutoCollectProgress(progress);
   }
 
   // --- Internal: User scroll detection ---
@@ -267,7 +265,7 @@ export class AutoCollector {
     const reversed = [...batches].reverse();
 
     const seenDomIds = new Set<string>();
-    const seenBucketKeys = new Set<string>();
+    const seenHashKeys = new Set<string>();
     const canonical: Array<{
       observedDomMessageId: string | null;
       textHash: string;
@@ -295,10 +293,9 @@ export class AutoCollector {
           continue;
         }
 
-        const bucket = Math.floor(candidate.absoluteTop / ABSOLUTE_TOP_BUCKET);
-        const dedupKey = `${candidate.textHash}:@${bucket}`;
-        if (seenBucketKeys.has(dedupKey)) continue;
-        seenBucketKeys.add(dedupKey);
+        const dedupKey = candidate.textHash;
+        if (seenHashKeys.has(dedupKey)) continue;
+        seenHashKeys.add(dedupKey);
 
         canonical.push({
           observedDomMessageId: null,
@@ -311,6 +308,9 @@ export class AutoCollector {
         });
       }
     }
+
+    // Sort by absoluteTop to guarantee strict top-to-bottom order
+    canonical.sort((a, b) => a.absoluteTop - b.absoluteTop);
 
     const now = Date.now();
     const occurrenceTracker = new Map<string, number>();

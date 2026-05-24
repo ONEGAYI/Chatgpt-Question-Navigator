@@ -46,10 +46,10 @@ export class CacheStore {
   async saveConversation(cache: ConversationCache): Promise<void> {
     const normalized = this.normalizeCache({ ...cache, updatedAt: Date.now() });
     await chrome.storage.local.set({ [this.cacheKey(cache.conversationId)]: normalized });
-    await this.touchMeta(cache.conversationId);
     this.currentCache = normalized;
-    this.dirty = false;
+    await this.touchMeta(cache.conversationId);
     await this.performLruCleanupIfNeeded();
+    this.dirty = false;
   }
 
   async clearConversation(id: string): Promise<void> {
@@ -233,7 +233,8 @@ export class CacheStore {
         conversationId: realId,
         localMessageId: message.localMessageId.replace(`${tempId}::`, `${realId}::`)
       })),
-      orderedIds: temp.orderedIds.map((id) => id.replace(`${tempId}::`, `${realId}::`))
+      orderedIds: temp.orderedIds.map((id) => id.replace(`${tempId}::`, `${realId}::`)),
+      ...(temp.orderMode ? { orderMode: temp.orderMode } : {}),
     };
 
     await chrome.storage.local.set({ [this.cacheKey(realId)]: migrated });
