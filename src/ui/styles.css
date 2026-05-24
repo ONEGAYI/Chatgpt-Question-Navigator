@@ -168,6 +168,90 @@
   z-index: 2147483647;
 }
 
+.cqn-minibar {
+  position: fixed;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  color: var(--cqn-accent);
+}
+
+.cqn-mini-mark {
+  display: block;
+  width: 14px;
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--cqn-accent);
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  margin-top: 8px;
+}
+
+.cqn-mini-mark:first-of-type {
+  margin-top: 4px;
+}
+
+.cqn-mini-mark.is-mounted {
+  opacity: 0.7;
+}
+
+.cqn-mini-mark.is-cached {
+  opacity: 0.35;
+}
+
+.cqn-mini-mark.is-active {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(16, 163, 127, 0.5);
+}
+
+.cqn-mini-nav {
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  color: var(--cqn-accent);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.cqn-mini-nav:hover {
+  opacity: 0.8;
+}
+
+.cqn-mini-nav.is-disabled {
+  opacity: 0.15;
+  cursor: default;
+  pointer-events: none;
+}
+
+.cqn-mini-expand {
+  margin-top: 10px;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  color: var(--cqn-text-secondary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.4;
+}
+
+.cqn-mini-expand:hover {
+  opacity: 0.7;
+  color: var(--cqn-text-primary);
+}
+
 @media (prefers-color-scheme: light) {
   :host {
     --cqn-bg-primary: #ffffff;
