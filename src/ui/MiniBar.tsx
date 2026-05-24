@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { CachedUserMessage } from '../shared/types';
 
 const MAX_VISIBLE = 7;
@@ -32,6 +32,13 @@ function getVisibleRange(total: number, activeIdx: number): { start: number; end
 
 export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpand }: MiniBarProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
+
+  const clearHover = useCallback(() => setHover(null), []);
+
+  useEffect(() => {
+    window.addEventListener('scroll', clearHover, true);
+    return () => window.removeEventListener('scroll', clearHover, true);
+  }, [clearHover]);
 
   const activeIdx = useMemo(() => getActiveIndex(messages, activeMessageId), [messages, activeMessageId]);
   const visible = useMemo(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
 import type { CachedUserMessage, RuntimeState } from '../shared/types';
@@ -57,6 +57,13 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
   }, [snapshot.messages, searchQuery]);
 
   const handleJump = (target: CachedUserMessage) => void jumpController.jumpToMessage(target);
+
+  const clearHover = useCallback(() => setHover(null), []);
+
+  useEffect(() => {
+    window.addEventListener('scroll', clearHover, true);
+    return () => window.removeEventListener('scroll', clearHover, true);
+  }, [clearHover]);
 
   if (!modeLoaded) return null;
 
