@@ -9,6 +9,7 @@ chatgpt-question-navigator/
 │       └── main.tsx                # Preact 挂载点，渲染 PopupApp
 ├── src/
 │   ├── content/
+│   │   ├── autoCollector.ts        # 自动 bottom-to-top 采集，按钮触发，生成 canonical 顺序
 │   │   ├── cacheStore.ts           # chrome.storage.local 持久化，按会话缓存消息，LRU 清理
 │   │   ├── domAdapter.ts           # ChatGPT DOM 结构查询抽象，选择器集中定义
 │   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
