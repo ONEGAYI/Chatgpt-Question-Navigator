@@ -10,11 +10,11 @@ chatgpt-question-navigator/
 ├── src/
 │   ├── content/
 │   │   ├── cacheStore.ts           # chrome.storage.local 持久化，按会话缓存消息，LRU 清理
-│   │   ├── domAdapter.ts           # ChatGPT DOM 交互抽象层，选择器集中定义
+│   │   ├── domAdapter.ts           # ChatGPT DOM 结构查询抽象，选择器集中定义
 │   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
 │   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
-│   │   ├── scrollDriver.ts         # 滚动容器抽象，区分用户滚动与程序滚动
+│   │   ├── scrollDriver.ts         # 滚动基础设施：多源 root 检测 + 评分验证 + 操作结果 + viewport + 方向捕获 + 诊断
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
 │   ├── popup/
 │   │   ├── PopupApp.tsx            # Popup 主组件：存储用量仪表、对话列表、缓存操作按钮

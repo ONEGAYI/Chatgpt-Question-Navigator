@@ -49,12 +49,12 @@ Popup → Content Script 通信协议：
 
 | 模块 | 职责 |
 |------|------|
-| `DomAdapter` | 所有 ChatGPT DOM 交互的集中抽象。选择器定义在此文件顶部 `SELECTORS` 常量。修改 DOM 识别逻辑只动这个文件 |
+| `DomAdapter` | ChatGPT DOM 结构查询抽象。选择器定义在此文件顶部 `SELECTORS` 常量。仅负责 DOM 元素识别和文本提取，不涉及滚动 |
 | `MessageScanner` | 核心扫描引擎。通过 MutationObserver（防抖 500ms）和 IntersectionObserver 监控 DOM 变化，将候选消息交给 CacheStore 去重合并 |
 | `CacheStore` | `chrome.storage.local` 持久化层。按 `conv:{id}` 分会话存储，LRU 清理（上限 8MB），防抖保存（2s）。`resolveScannedSegments` 是核心分段合并方法 |
 | `RuntimeStore` | 内存中的响应式状态。通过 subscribe/emit 模式驱动 Preact UI 更新 |
 | `UrlWatcher` | 监听 SPA 路由变化（patch history API + popstate + 轮询），提取 conversationId 或分配临时 ID |
-| `ScrollDriver` | 滚动容器抽象，区分用户滚动与程序滚动 |
+| `ScrollDriver` | 滚动基础设施：多源 scroll root 检测（selector / main 后代 / main 祖先 / user message 祖先链 / DOM root）+ 评分 + 最小滚动验证、操作结果追踪、viewport 判断、用户滚动方向捕获（PR #7）、运行时重检 + 诊断。无 DomAdapter 依赖。document root 候选归一化为 window kind。ChatGPT 的实际滚动容器是 `<main>` 的父级 DIV（overflowY: auto），init 时需轮询等待异步渲染完成后 redetect |
 | `JumpController` | 跳转逻辑：对已挂载消息直接 scrollIntoView + 临时高亮；未挂载消息返回失败（Phase 4 待实现渐进式跳转） |
 
 ### UI 层 (`src/ui/`)
@@ -95,6 +95,7 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 ## 开发注意事项
 
 - **选择器集中管理**：ChatGPT DOM 选择器全部在 `DomAdapter` 的 `SELECTORS` 常量中，不要散落
+- **ScrollDriver scroll root 检测**：`detectScrollRoot()` 通过多源候选（selector、main 后代、**main 祖先**、采样 user message 祖先链、标准 DOM root）+ 评分 + 最小滚动验证选择滚动根。document root 候选（HTML/BODY）归一化为 `kind:'window'`。运行时通过 `ensureValidRoot()` 在 scroll 操作前自动验证，`revalidateRoot()` / `redetectScrollRoot()` 手动重检。ChatGPT 异步渲染导致 init 时所有候选 `maxScrollTop=0`，需轮询 redetect（每秒一次，最多 10 次）。调试：**Ctrl+Shift+D** 输出诊断快照（CSP 阻止 inline `<script>` 注入，改用键盘快捷键）
 - **CacheStore 的 currentCache 是单会话热缓存**：`ensureCurrentCache` 在 conversationId 不匹配时会重建，这意味着跨会话操作前需要先 `loadConversation`
 - **防抖/节流常量**：定义在各自模块顶部（`MUTATION_DEBOUNCE_MS=500`, `SCROLL_THROTTLE_MS=300`, `SAVE_DEBOUNCE_MS=2000`）
 - **消息顺序使用持久 orderedIds + 分段合并**：`absoluteTop` / `orderKey` 只保留为局部扫描和旧字段兼容信息，不作为全局排序依据。MessageScanner 会先按视觉 gap 切分可信局部片段，CacheStore 再逐段合并，避免远处残留 DOM 节点成为错误 anchor

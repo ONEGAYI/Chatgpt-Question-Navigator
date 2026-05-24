@@ -71,6 +71,8 @@ export class MessageScanner {
   }
 
   async rescan(): Promise<ScanResult> {
+    this.scrollDriver.triggerRootCheck();
+
     const domConversationId = this.domAdapter.extractConversationId();
     const storedConversationId = this.runtimeStore.getSnapshot().conversationId;
     const conversationId = domConversationId ?? storedConversationId;
@@ -165,7 +167,7 @@ export class MessageScanner {
       this.scrollTimer = null;
       for (const localId of this.mountedIds) {
         const el = this.elementById.get(localId);
-        if (el && this.domAdapter.isElementInViewport(el)) {
+        if (el && this.scrollDriver.isElementInViewport(el)) {
           this.updateScrollMeta(localId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
         }
       }
@@ -249,18 +251,20 @@ export class MessageScanner {
   }
 
   private computeActiveMessageId(): string | null {
+    const viewport = this.scrollDriver.getViewportRect();
+
     const entries = Array.from(this.elementById.entries())
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.bottom >= 0 && rect.top <= window.innerHeight);
+      .filter(({ rect }) => rect.bottom >= viewport.top && rect.top <= viewport.bottom);
 
     const visibleBelowTop = entries
-      .filter(({ rect }) => rect.top >= 0)
+      .filter(({ rect }) => rect.top >= viewport.top)
       .sort((a, b) => a.rect.top - b.rect.top)[0];
     if (visibleBelowTop) return visibleBelowTop.id;
 
     const nearestAbove = Array.from(this.elementById.entries())
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
-      .filter(({ rect }: { rect: DOMRect }) => rect.top < (0 as number))
+      .filter(({ rect }) => rect.top < viewport.top)
       .sort((a, b) => b.rect.top - a.rect.top)[0];
 
     return nearestAbove?.id ?? null;
@@ -271,7 +275,7 @@ export class MessageScanner {
     const visibleOrderKeys = snapshot.messages
       .filter((message) => {
         const element = this.elementById.get(message.localMessageId);
-        return element ? this.domAdapter.isElementInViewport(element) : false;
+        return element ? this.scrollDriver.isElementInViewport(element) : false;
       })
       .map((message) => message.orderKey);
 

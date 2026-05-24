@@ -15,7 +15,7 @@ export default defineContentScript({
   async main(ctx) {
     const domAdapter = new DomAdapter();
     const cacheStore = new CacheStore();
-    const scrollDriver = new ScrollDriver(domAdapter);
+    const scrollDriver = new ScrollDriver();
     const runtimeStore = new RuntimeStore();
     const urlWatcher = new UrlWatcher(domAdapter);
     const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver, runtimeStore);
@@ -47,13 +47,37 @@ export default defineContentScript({
       runtimeStore.setConversationId(id);
       runtimeStore.setMessages(cache?.messages ?? []);
       scanner.clearState();
+      scrollDriver.redetectScrollRoot('conversation-change');
     });
 
     scrollDriver.init();
     urlWatcher.start();
     scanner.start();
 
+    // Polling re-detection: ChatGPT renders content asynchronously,
+    // scroll container dimensions are 0 at content script init time.
+    let pollAttempts = 0;
+    const pollId = window.setInterval(() => {
+      pollAttempts++;
+      scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
+      if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
+        clearInterval(pollId);
+      }
+    }, 1000);
+
+    // Debug: Ctrl+Shift+D logs scroll driver snapshot to console.
+    // Content script runs in isolated world — inline <script> injection is blocked by CSP.
+    // A keyboard shortcut bypasses CSP entirely.
+    const onDebugKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        console.log('[CQN] ScrollDriver debug:', scrollDriver.getDebugSnapshot());
+      }
+    };
+    window.addEventListener('keydown', onDebugKey);
+
     window.addEventListener('beforeunload', () => {
+      if (pollId !== undefined) clearInterval(pollId);
+      window.removeEventListener('keydown', onDebugKey);
       void cacheStore.flush();
       scanner.stop();
       scrollDriver.destroy();
