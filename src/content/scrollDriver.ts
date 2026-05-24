@@ -230,6 +230,16 @@ export class ScrollDriver {
           addCandidate(el, 'main-descendant', `main descendant overflow-y:${style.overflowY}`);
         }
       }
+
+      // 2b. Ancestors of <main> with scrollable overflow (covers parent scroll container)
+      let ancestor = main.parentElement;
+      while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+        const style = getComputedStyle(ancestor);
+        if (['auto', 'scroll', 'overlay'].includes(style.overflowY)) {
+          addCandidate(ancestor, 'main-ancestor', `main ancestor overflow-y:${style.overflowY}`);
+        }
+        ancestor = ancestor.parentElement;
+      }
     }
 
     // 3. Ancestor chain from sampled user messages (first 3 + middle + last 3)

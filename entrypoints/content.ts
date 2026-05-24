@@ -39,7 +39,25 @@ export default defineContentScript({
     urlWatcher.start();
     scanner.start();
 
-    (window as any).__CQN_SCROLL_DEBUG__ = () => scrollDriver.getDebugSnapshot();
+    // Polling re-detection: ChatGPT renders content asynchronously,
+    // scroll container dimensions are 0 at content script init time.
+    let pollAttempts = 0;
+    const pollId = window.setInterval(() => {
+      pollAttempts++;
+      scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
+      if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
+        clearInterval(pollId);
+      }
+    }, 1000);
+
+    // Debug: Ctrl+Shift+D logs scroll driver snapshot to console.
+    // Content script runs in isolated world — inline <script> injection is blocked by CSP.
+    // A keyboard shortcut bypasses CSP entirely.
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        console.log('[CQN] ScrollDriver debug:', scrollDriver.getDebugSnapshot());
+      }
+    });
 
     window.addEventListener('beforeunload', () => {
       void cacheStore.flush();
