@@ -282,6 +282,16 @@
   color: var(--cqn-text-primary);
 }
 
+.cqn-collect-spinner {
+  display: inline-block;
+  animation: cqn-spin 1s linear infinite;
+}
+
+@keyframes cqn-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-color-scheme: light) {
   :host {
     --cqn-bg-primary: #ffffff;

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import type { AutoCollector } from '../content/autoCollector';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
-import type { CachedUserMessage, RuntimeState } from '../shared/types';
+import type { AutoCollectProgress, CachedUserMessage, RuntimeState } from '../shared/types';
 import { MessageItem } from './MessageItem';
 import { MiniBar } from './MiniBar';
 import { SearchBox } from './SearchBox';
@@ -19,9 +20,11 @@ interface SidebarProps {
   runtimeStore: RuntimeStore;
   jumpController: JumpController;
   onClearCurrentSession: () => Promise<void>;
+  onStartAutoCollect: () => void;
+  autoCollector: AutoCollector;
 }
 
-export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }: SidebarProps) {
+export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, onStartAutoCollect, autoCollector }: SidebarProps) {
   const [snapshot, setSnapshot] = useState<RuntimeState>(() => runtimeStore.getSnapshot());
   const [mode, setMode] = useState<SidebarMode>('expanded');
   const [modeLoaded, setModeLoaded] = useState(false);
@@ -30,6 +33,12 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }:
   const [hover, setHover] = useState<HoverState | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+
+  const [collectProgress, setCollectProgress] = useState<AutoCollectProgress | null>(null);
+
+  useEffect(() => {
+    return autoCollector.onProgress(setCollectProgress);
+  }, [autoCollector]);
 
   useEffect(() => runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot())), [runtimeStore]);
 
@@ -121,6 +130,35 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }:
           <div style={{ display: 'flex', gap: '4px' }}>
             {snapshot.conversationId && (
               <button
+                className="cqn-collapse"
+                type="button"
+                onClick={() => {
+                  const p = autoCollector.getProgress();
+                  if (p.phase === 'collecting' || p.phase === 'preparing' || p.phase === 'finalizing') {
+                    autoCollector.cancel();
+                  } else {
+                    onStartAutoCollect();
+                  }
+                }}
+                disabled={clearing}
+                title={
+                  collectProgress?.phase === 'collecting' ? '取消采集' :
+                  collectProgress?.phase === 'preparing' ? '准备中...' :
+                  '重新采集本对话'
+                }
+              >
+                {collectProgress?.phase === 'collecting' || collectProgress?.phase === 'preparing' || collectProgress?.phase === 'finalizing' ? (
+                  <span className="cqn-collect-spinner">↻</span>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                )}
+              </button>
+            )}
+            {snapshot.conversationId && (
+              <button
                 className={`cqn-collapse ${confirmClear ? 'is-confirming' : ''}`}
                 type="button"
                 onClick={handleClearClick}
@@ -149,7 +187,20 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }:
 
         {!clearing && (
           <div className="cqn-status">
-            Indexed {snapshot.messages.length} questions locally
+            {collectProgress?.phase === 'collecting'
+              ? `Collecting... ${collectProgress.foundCount} found`
+              : collectProgress?.phase === 'preparing'
+                ? 'Preparing collection...'
+                : collectProgress?.phase === 'finalizing'
+                  ? 'Finalizing...'
+                  : collectProgress?.phase === 'cancelled'
+                    ? 'Collection cancelled'
+                    : collectProgress?.phase === 'failed'
+                      ? `Collection failed: ${collectProgress.errorMessage ?? 'unknown'}`
+                      : collectProgress?.phase === 'completed'
+                        ? `Collected ${snapshot.messages.length} questions`
+                        : `Indexed ${snapshot.messages.length} questions locally`
+          }
           </div>
         )}
 
