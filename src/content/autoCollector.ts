@@ -1,4 +1,4 @@
-import type { AutoCollectIntent, AutoCollectPhase, AutoCollectProgress, CachedUserMessage } from '../shared/types';
+import type { AutoCollectIntent, AutoCollectPhase, AutoCollectProgress, CachedUserMessage, TurnFrame } from '../shared/types';
 import { hashText } from '../shared/hash';
 import { toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
@@ -6,36 +6,18 @@ import type { DomAdapter } from './domAdapter';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
 
-// --- Internal types ---
-
-interface RawCandidate {
-  observedDomMessageId: string | null;
-  text: string;
-  textHash: string;
-  preview: string;
-  textForSearch: string;
-  batchIndex: number;
-  domIndexInBatch: number;
-  absoluteTop: number;
-}
-
-interface CollectedBatch {
-  batchIndex: number;
-  scrollTop: number;
-  scrollRatio: number;
-  candidates: RawCandidate[];
-}
-
 // --- Constants ---
 
 const INTENT_KEY = 'cqn-auto-collect-intent';
 const MAX_ROUNDS = 500;
-const SCROLL_STEP_RATIO = 0.75;
+const SCROLL_STEP_RATIO = 0.7; // 固定步长，方便调试和复现
 const SETTLE_STABLE_MS = 500;
 const SETTLE_QUIET_MS = 400;
 const SETTLE_TIMEOUT_MS = 5000;
 const SETTLE_POLL_MS = 100;
-const NO_NEW_CANDIDATES_LIMIT = 5;
+const STAGNANT_LIMIT = 3;
+const NO_MOVEMENT_LIMIT = 5;
+const FALLBACK_MAX_ROUNDS = 50;
 
 // --- AutoCollector ---
 
@@ -48,6 +30,7 @@ export class AutoCollector {
   private errorMessage = '';
   private progressListeners = new Set<(p: AutoCollectProgress) => void>();
   private cleanupUserScroll: (() => void) | null = null;
+  private frames = new Map<string, TurnFrame>();
 
   constructor(
     private readonly domAdapter: DomAdapter,
@@ -91,6 +74,7 @@ export class AutoCollector {
     this.foundCount = 0;
     this.round = 0;
     this.errorMessage = '';
+    this.frames = new Map();
 
     try {
       this.setPhase('preparing');
@@ -101,48 +85,47 @@ export class AutoCollector {
 
       if (this.cancelRequested) { this.setPhase('cancelled'); return; }
 
-      const metrics = this.scrollDriver.getMetrics();
+      // Phase 1: Scan all turn skeletons
+      await this.scanAllTurnSkeletons();
       this.setPhase('collecting');
       this.runtimeStore.setMessages([]);
+
+      const metrics = this.scrollDriver.getMetrics();
       if (metrics.maxScrollTop <= 8) {
-        const batch = await this.extractCurrentBatch(0);
-        await this.finalize([batch], conversationId);
+        await this.finalize(conversationId);
         return;
       }
 
-      const batches: CollectedBatch[] = [];
-      let consecutiveNoNew = 0;
-      const seenKeys = new Set<string>();
+      // Phase 2: Bottom-to-top hydration loop
+      let stagnantRounds = 0;
 
       while (this.round < MAX_ROUNDS && !this.cancelRequested) {
-        const batch = await this.extractCurrentBatch(this.round);
+        const hydratedBefore = this.countHydrated();
 
-        let newCount = 0;
-        for (const c of batch.candidates) {
-          const tempKey = c.observedDomMessageId
-            ? `dom:${c.observedDomMessageId}`
-            : `hash:${c.textHash}`;
-          if (!seenKeys.has(tempKey)) {
-            seenKeys.add(tempKey);
-            newCount++;
-          }
-        }
+        await this.scanAllTurnSkeletons();
 
-        batches.push(batch);
-        this.foundCount = seenKeys.size;
+        const hydratedAfter = this.countHydrated();
+        this.foundCount = this.countHydratedUserMessages();
         this.round++;
-        this.runtimeStore.setMessages(this.mergeBatches(batches, conversationId));
+
+        this.runtimeStore.setMessages(
+          this.buildUserMessagesFromFrames(conversationId)
+        );
         this.emitProgress();
 
-        if (newCount === 0) {
-          consecutiveNoNew++;
+        // End conditions
+        if (this.frames.size - hydratedAfter === 0) break;
+
+        if (hydratedAfter === hydratedBefore) {
+          stagnantRounds++;
         } else {
-          consecutiveNoNew = 0;
+          stagnantRounds = 0;
         }
 
-        const currentScrollTop = this.scrollDriver.getScrollTop();
-        if (currentScrollTop <= 8 && consecutiveNoNew >= 2) break;
+        const scrollTop = this.scrollDriver.getScrollTop();
+        if (scrollTop <= 8 && stagnantRounds >= STAGNANT_LIMIT) break;
 
+        // Scroll up
         const step = Math.floor(this.scrollDriver.getClientHeight() * SCROLL_STEP_RATIO);
         const beforeTop = this.scrollDriver.getScrollTop();
         this.scrollDriver.scrollBy(-step);
@@ -152,7 +135,7 @@ export class AutoCollector {
         const noMovement = Math.abs(afterTop - beforeTop) < 2;
 
         if (noMovement && afterTop <= 8) break;
-        if (noMovement && consecutiveNoNew >= NO_NEW_CANDIDATES_LIMIT) break;
+        if (noMovement && stagnantRounds >= NO_MOVEMENT_LIMIT) break;
       }
 
       if (this.cancelRequested) {
@@ -160,14 +143,13 @@ export class AutoCollector {
         return;
       }
 
-      if (this.scrollDriver.getScrollTop() > 0) {
-        this.scrollDriver.scrollToRatio(0);
-        await this.waitForPageSettled();
-        const finalBatch = await this.extractCurrentBatch(this.round);
-        batches.push(finalBatch);
+      // Phase 3: Optional top-to-bottom fallback hydration
+      const unhydrated = [...this.frames.values()].filter((f) => !f.hydrated);
+      if (unhydrated.length > 0) {
+        await this.runFallbackHydration();
       }
 
-      await this.finalize(batches, conversationId);
+      await this.finalize(conversationId);
 
     } catch (error) {
       this.errorMessage = error instanceof Error ? error.message : String(error);
@@ -203,6 +185,11 @@ export class AutoCollector {
 
   private emitProgress(): void {
     const progress = this.getProgress();
+    const totalFrames = this.frames.size;
+    const hydrated = this.countHydrated();
+    progress.totalTurns = totalFrames;
+    progress.hydratedCount = hydrated;
+    progress.unhydratedCount = totalFrames - hydrated;
     this.progressListeners.forEach((listener) => listener(progress));
     this.runtimeStore.setAutoCollectProgress(progress);
   }
@@ -218,128 +205,163 @@ export class AutoCollector {
     });
   }
 
-  // --- Internal: Batch extraction ---
+  // --- Internal: Skeleton scanning & hydration ---
 
-  private async extractCurrentBatch(batchIndex: number): Promise<CollectedBatch> {
-    const elements = this.domAdapter.findUserMessages();
-    const candidates: RawCandidate[] = [];
+  private async scanAllTurnSkeletons(): Promise<void> {
+    const skeletons = this.domAdapter.findTurnSkeletons();
 
-    for (let i = 0; i < elements.length; i++) {
-      const el = elements[i]!;
-      const text = this.domAdapter.extractText(el);
-      if (!text) continue;
+    for (const el of skeletons) {
+      const turnKey = this.domAdapter.extractTurnKey(el);
+      if (!turnKey) continue;
+      const turnIndex = this.domAdapter.extractTurnIndex(turnKey);
+      if (turnIndex < 0) continue;
 
-      candidates.push({
-        observedDomMessageId: this.domAdapter.extractObservedId(el),
-        text,
-        textHash: await hashText(text),
-        preview: toPreview(text),
-        textForSearch: toSearchText(text),
-        batchIndex,
-        domIndexInBatch: i,
-        absoluteTop: this.scrollDriver.getAbsoluteTop(el),
-      });
+      const existing = this.frames.get(turnKey);
+      if (existing) {
+        await this.tryHydrateFrame(el, existing);
+      } else {
+        const frame: TurnFrame = {
+          turnKey,
+          turnIndex,
+          role: 'unknown',
+          hydrated: false,
+          observedDomMessageId: null,
+          textHash: null,
+          preview: null,
+          textForSearch: null,
+          lastKnownScrollTop: this.scrollDriver.getScrollTop(),
+          lastKnownScrollRatio: this.scrollDriver.getScrollRatio(),
+          lastHydratedAt: null,
+        };
+        await this.tryHydrateFrame(el, frame);
+        this.frames.set(turnKey, frame);
+      }
     }
-
-    return {
-      batchIndex,
-      scrollTop: this.scrollDriver.getScrollTop(),
-      scrollRatio: this.scrollDriver.getScrollRatio(),
-      candidates,
-    };
   }
 
-  // --- Internal: Canonical merge ---
+  private async tryHydrateFrame(el: HTMLElement, frame: TurnFrame): Promise<void> {
+    if (frame.hydrated) return;
 
-  private async finalize(batches: CollectedBatch[], conversationId: string): Promise<void> {
+    const rect = el.getBoundingClientRect();
+    if (rect.height === 0) return;
+
+    const role = this.domAdapter.extractTurnRole(el);
+    if (role === 'unknown') return;
+
+    if (role === 'user') {
+      const userEl = el.querySelector<HTMLElement>('[data-message-author-role="user"]');
+      if (!userEl) return;
+      const text = this.domAdapter.extractText(userEl);
+      if (!text) return;
+
+      frame.observedDomMessageId = this.domAdapter.extractObservedId(userEl);
+      frame.textHash = await hashText(text);
+      frame.preview = toPreview(text);
+      frame.textForSearch = toSearchText(text);
+    }
+    // assistant turn 只需 role recognition 即视为 hydrated；
+    // 最终 Q 列表只由 user frames 生成，无需保存 assistant 文本。
+
+    frame.role = role;
+    frame.hydrated = true;
+    frame.lastHydratedAt = Date.now();
+    frame.lastKnownScrollTop = this.scrollDriver.getScrollTop();
+    frame.lastKnownScrollRatio = this.scrollDriver.getScrollRatio();
+  }
+
+  private buildUserMessagesFromFrames(conversationId: string): CachedUserMessage[] {
+    const sortedFrames = [...this.frames.values()]
+      .sort((a, b) => a.turnIndex - b.turnIndex);
+
+    const userFrames = sortedFrames.filter(
+      (f) => f.role === 'user' && f.hydrated && f.textHash !== null
+    );
+
+    const now = Date.now();
+    return userFrames.map((frame, index) => ({
+      conversationId,
+      localMessageId: `${conversationId}::turn::${frame.turnKey}`,
+      role: 'user' as const,
+      textForSearch: frame.textForSearch!,
+      preview: frame.preview!,
+      textHash: frame.textHash!,
+      occurrenceIndex: index,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastKnownScrollTop: frame.lastKnownScrollTop,
+      lastKnownScrollRatio: frame.lastKnownScrollRatio,
+      orderKey: index,
+    }));
+  }
+
+  private countHydrated(): number {
+    let count = 0;
+    for (const frame of this.frames.values()) {
+      if (frame.hydrated) count++;
+    }
+    return count;
+  }
+
+  private countHydratedUserMessages(): number {
+    let count = 0;
+    for (const frame of this.frames.values()) {
+      if (frame.role === 'user' && frame.hydrated && frame.textHash !== null) count++;
+    }
+    return count;
+  }
+
+  private async runFallbackHydration(): Promise<void> {
+    this.scrollDriver.scrollToRatio(0);
+    await this.waitForPageSettled();
+
+    let fallbackRound = 0;
+    let stagnantRounds = 0;
+
+    while (fallbackRound < FALLBACK_MAX_ROUNDS && !this.cancelRequested) {
+      const hydratedBefore = this.countHydrated();
+
+      await this.scanAllTurnSkeletons();
+
+      const hydratedAfter = this.countHydrated();
+
+      if (hydratedAfter > hydratedBefore) {
+        stagnantRounds = 0;
+        this.foundCount = this.countHydratedUserMessages();
+        this.runtimeStore.setMessages(
+          this.buildUserMessagesFromFrames(this.currentConversationId)
+        );
+        this.emitProgress();
+      } else {
+        stagnantRounds++;
+      }
+
+      if (this.frames.size - hydratedAfter === 0) break;
+      if (stagnantRounds >= STAGNANT_LIMIT) break;
+
+      const step = Math.floor(this.scrollDriver.getClientHeight() * SCROLL_STEP_RATIO);
+      const beforeTop = this.scrollDriver.getScrollTop();
+      this.scrollDriver.scrollBy(step);
+      await this.waitForPageSettled();
+
+      const afterTop = this.scrollDriver.getScrollTop();
+      if (Math.abs(afterTop - beforeTop) < 2) break;
+
+      fallbackRound++;
+    }
+  }
+
+  // --- Internal: Canonical finalization ---
+
+  private async finalize(conversationId: string): Promise<void> {
     this.setPhase('finalizing');
 
-    const messages = this.mergeBatches(batches, conversationId);
+    const messages = this.buildUserMessagesFromFrames(conversationId);
     await this.cacheStore.replaceConversationMessages(conversationId, messages);
     this.runtimeStore.setMessages(messages);
 
     await this.afterReplace?.();
 
     this.setPhase('completed');
-  }
-
-  private mergeBatches(batches: CollectedBatch[], conversationId: string): CachedUserMessage[] {
-    const reversed = [...batches].reverse();
-
-    const seenDomIds = new Set<string>();
-    const seenHashKeys = new Set<string>();
-    const canonical: Array<{
-      observedDomMessageId: string | null;
-      textHash: string;
-      preview: string;
-      textForSearch: string;
-      scrollTop: number;
-      scrollRatio: number;
-      absoluteTop: number;
-    }> = [];
-
-    for (const batch of reversed) {
-      for (const candidate of batch.candidates) {
-        if (candidate.observedDomMessageId) {
-          if (seenDomIds.has(candidate.observedDomMessageId)) continue;
-          seenDomIds.add(candidate.observedDomMessageId);
-          canonical.push({
-            observedDomMessageId: candidate.observedDomMessageId,
-            textHash: candidate.textHash,
-            preview: candidate.preview,
-            textForSearch: candidate.textForSearch,
-            scrollTop: batch.scrollTop,
-            scrollRatio: batch.scrollRatio,
-            absoluteTop: candidate.absoluteTop,
-          });
-          continue;
-        }
-
-        const dedupKey = candidate.textHash;
-        if (seenHashKeys.has(dedupKey)) continue;
-        seenHashKeys.add(dedupKey);
-
-        canonical.push({
-          observedDomMessageId: null,
-          textHash: candidate.textHash,
-          preview: candidate.preview,
-          textForSearch: candidate.textForSearch,
-          scrollTop: batch.scrollTop,
-          scrollRatio: batch.scrollRatio,
-          absoluteTop: candidate.absoluteTop,
-        });
-      }
-    }
-
-    // Sort by absoluteTop to guarantee strict top-to-bottom order
-    canonical.sort((a, b) => a.absoluteTop - b.absoluteTop);
-
-    const now = Date.now();
-    const occurrenceTracker = new Map<string, number>();
-
-    return canonical.map((c, index) => {
-      const occurrenceIndex = occurrenceTracker.get(c.textHash) ?? 0;
-      occurrenceTracker.set(c.textHash, occurrenceIndex + 1);
-
-      const localMessageId = c.observedDomMessageId
-        ? `${conversationId}::dom::${c.observedDomMessageId}`
-        : `${conversationId}::hash::${c.textHash}::${occurrenceIndex}`;
-
-      return {
-        conversationId,
-        localMessageId,
-        role: 'user' as const,
-        textForSearch: c.textForSearch,
-        preview: c.preview,
-        textHash: c.textHash,
-        occurrenceIndex,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        lastKnownScrollTop: c.scrollTop,
-        lastKnownScrollRatio: c.scrollRatio,
-        orderKey: index,
-      };
-    });
   }
 
   // --- Internal: Page settle detection ---
