@@ -5,6 +5,7 @@ import type {
   ScannedUserMessageCandidate,
   StorageMeta
 } from '../shared/types';
+import { mergeOrderedIds, orderMessagesByIds } from './orderList';
 
 type StoredCandidate = Omit<ScannedUserMessageCandidate, 'element'>;
 
@@ -30,17 +31,14 @@ export class CacheStore {
     const key = this.cacheKey(id);
     const result = await chrome.storage.local.get(key);
     const cache = result[key] as ConversationCache | undefined;
-    this.currentCache = cache ?? { conversationId: id, updatedAt: Date.now(), messages: [] };
+    const normalized = cache ? this.normalizeCache(cache) : null;
+    this.currentCache = normalized ?? this.createEmptyCache(id);
     this.dirty = false;
-    return cache ?? null;
+    return normalized;
   }
 
   async saveConversation(cache: ConversationCache): Promise<void> {
-    const normalized = {
-      ...cache,
-      updatedAt: Date.now(),
-      messages: [...cache.messages].sort((a, b) => a.orderKey - b.orderKey)
-    };
+    const normalized = this.normalizeCache({ ...cache, updatedAt: Date.now() });
     await chrome.storage.local.set({ [this.cacheKey(cache.conversationId)]: normalized });
     await this.touchMeta(cache.conversationId);
     this.currentCache = normalized;
@@ -70,12 +68,16 @@ export class CacheStore {
 
     const now = Date.now();
     const existing = this.currentCache!.messages;
+    const existingOrderedIds = this.currentCache!.orderedIds;
     const usedExisting = new Set<string>();
     const resolvedMounted = new Set<string>();
+    const resolvedCandidates: ResolveResult['resolvedCandidates'] = [];
     const newOrUpdated: CachedUserMessage[] = [];
-    const nextMessagesById = new Map(existing.map((message) => [message.localMessageId, message]));
+    const nextMessagesById = new Map<string, CachedUserMessage>(existing.map((message) => [message.localMessageId, message]));
 
-    for (const candidate of candidates) {
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const candidate = candidates[candidateIndex];
+      if (!candidate) continue;
       const matched = this.matchCandidate(conversationId, candidate, existing, usedExisting);
       const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
       const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex);
@@ -92,7 +94,7 @@ export class CacheStore {
         lastSeenAt: now,
         lastKnownScrollTop: candidate.scrollTop,
         lastKnownScrollRatio: candidate.scrollRatio,
-        orderKey: candidate.absoluteTop
+        orderKey: matched?.orderKey ?? candidate.absoluteTop
       };
 
       if (!matched || this.hasMeaningfulChange(matched, next)) {
@@ -102,19 +104,24 @@ export class CacheStore {
 
       usedExisting.add(localMessageId);
       resolvedMounted.add(localMessageId);
+      resolvedCandidates.push({ localMessageId, candidateIndex });
       nextMessagesById.set(localMessageId, next);
     }
 
-    const allMessages = Array.from(nextMessagesById.values()).sort((a, b) => a.orderKey - b.orderKey);
+    const orderedIds = mergeOrderedIds(existingOrderedIds, resolvedCandidates.map((candidate) => candidate.localMessageId));
+    const allMessages = orderMessagesByIds(nextMessagesById, orderedIds);
+    if (!arraysEqual(existingOrderedIds, orderedIds)) this.dirty = true;
+
     this.currentCache = {
       conversationId,
       updatedAt: now,
-      messages: allMessages
+      messages: allMessages,
+      orderedIds
     };
 
     if (this.dirty) this.scheduleSave();
 
-    return { allMessages, resolvedMounted, newOrUpdated };
+    return { allMessages, resolvedMounted, resolvedCandidates, newOrUpdated };
   }
 
   async migrateTempCache(tempId: string, realId: string): Promise<void> {
@@ -128,7 +135,8 @@ export class CacheStore {
         ...message,
         conversationId: realId,
         localMessageId: message.localMessageId.replace(`${tempId}::`, `${realId}::`)
-      }))
+      })),
+      orderedIds: temp.orderedIds.map((id) => id.replace(`${tempId}::`, `${realId}::`))
     };
 
     await chrome.storage.local.set({ [this.cacheKey(realId)]: migrated });
@@ -181,7 +189,7 @@ export class CacheStore {
 
   private ensureCurrentCache(conversationId: string): void {
     if (this.currentCache?.conversationId === conversationId) return;
-    this.currentCache = { conversationId, updatedAt: Date.now(), messages: [] };
+    this.currentCache = this.createEmptyCache(conversationId);
     this.dirty = false;
   }
 
@@ -201,7 +209,7 @@ export class CacheStore {
       .filter((message) => message.textHash === candidate.textHash && !usedExisting.has(message.localMessageId))
       .map((message) => ({
         message,
-        distance: Math.abs(message.lastKnownScrollRatio - candidate.scrollRatio) + Math.abs(message.orderKey - candidate.absoluteTop) * 0.001
+        distance: Math.abs(message.lastKnownScrollRatio - candidate.scrollRatio)
       }))
       .sort((a, b) => a.distance - b.distance);
 
@@ -232,8 +240,7 @@ export class CacheStore {
     return previous.preview !== next.preview
       || previous.textForSearch !== next.textForSearch
       || previous.lastKnownScrollTop !== next.lastKnownScrollTop
-      || previous.lastKnownScrollRatio !== next.lastKnownScrollRatio
-      || previous.orderKey !== next.orderKey;
+      || previous.lastKnownScrollRatio !== next.lastKnownScrollRatio;
   }
 
   private scheduleSave(): void {
@@ -246,7 +253,8 @@ export class CacheStore {
   private async loadRawConversation(id: string): Promise<ConversationCache | null> {
     const key = this.cacheKey(id);
     const result = await chrome.storage.local.get(key);
-    return (result[key] as ConversationCache | undefined) ?? null;
+    const cache = result[key] as ConversationCache | undefined;
+    return cache ? this.normalizeCache(cache) : null;
   }
 
   private async loadMeta(): Promise<StorageMeta> {
@@ -264,4 +272,27 @@ export class CacheStore {
   private cacheKey(id: string): string {
     return `${CACHE_PREFIX}${id}`;
   }
+
+  private createEmptyCache(conversationId: string): ConversationCache {
+    return { conversationId, updatedAt: Date.now(), messages: [], orderedIds: [] };
+  }
+
+  private normalizeCache(cache: ConversationCache): ConversationCache {
+    const messagesById = new Map<string, CachedUserMessage>(cache.messages.map((message) => [message.localMessageId, message]));
+    const storedOrderedIds = Array.isArray(cache.orderedIds) ? cache.orderedIds : [];
+    const orderedIds = mergeOrderedIds(
+      storedOrderedIds.filter((id) => messagesById.has(id)),
+      cache.messages.map((message) => message.localMessageId)
+    );
+
+    return {
+      ...cache,
+      messages: orderMessagesByIds(messagesById, orderedIds),
+      orderedIds
+    };
+  }
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

@@ -13,6 +13,7 @@ chatgpt-question-navigator/
 │   │   ├── domAdapter.ts           # ChatGPT DOM 交互抽象层，选择器集中定义
 │   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
 │   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
+│   │   ├── orderList.ts            # 持久 orderedIds 合并模型，使用 anchor-splice 插入新消息
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
 │   │   ├── scrollDriver.ts         # 滚动容器抽象，区分用户滚动与程序滚动
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
@@ -38,6 +39,7 @@ chatgpt-question-navigator/
 ├── public/
 │   └── icon.png                     # 扩展图标（16/32/48/128 复用）
 ├── scripts/
+│   ├── order-list-regression.test.mjs # orderedIds anchor-splice 回归测试
 │   └── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
 ├── .gitignore
 ├── CLAUDE.md                        # Claude Code 项目指引

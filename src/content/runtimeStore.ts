@@ -37,7 +37,7 @@ export class RuntimeStore {
   setMessages(messages: CachedUserMessage[]): void {
     this.state = {
       ...this.state,
-      messages: [...messages].sort((a, b) => a.orderKey - b.orderKey)
+      messages: [...messages]
     };
     this.emit();
   }

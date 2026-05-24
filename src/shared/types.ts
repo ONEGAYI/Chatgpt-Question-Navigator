@@ -17,6 +17,7 @@ export interface ConversationCache {
   conversationId: string;
   updatedAt: number;
   messages: CachedUserMessage[];
+  orderedIds: string[];
 }
 
 export interface StorageMeta {
@@ -40,6 +41,10 @@ export interface ScannedUserMessageCandidate {
 export interface ResolveResult {
   allMessages: CachedUserMessage[];
   resolvedMounted: Set<string>;
+  resolvedCandidates: Array<{
+    localMessageId: string;
+    candidateIndex: number;
+  }>;
   newOrUpdated: CachedUserMessage[];
 }
 

@@ -155,14 +155,9 @@ export class MessageScanner {
     this.elementById.clear();
     this.mountedIds = new Set(result.resolvedMounted);
 
-    const messagesByIdentity = new Map(result.allMessages.map((message) => [
-      `${message.textHash}:${message.orderKey}`,
-      message.localMessageId
-    ]));
-
-    for (const candidate of candidates) {
-      const localId = messagesByIdentity.get(`${candidate.textHash}:${candidate.absoluteTop}`);
-      if (localId) this.elementById.set(localId, candidate.element);
+    for (const resolved of result.resolvedCandidates) {
+      const candidate = candidates[resolved.candidateIndex];
+      if (candidate) this.elementById.set(resolved.localMessageId, candidate.element);
     }
   }
 
