@@ -12,6 +12,7 @@
     "build:chrome": "wxt build -b chrome && node scripts/copy-build.mjs",
     "build:edge": "wxt build -b edge && node scripts/copy-build.mjs",
     "compile": "tsc --noEmit",
+    "test:order": "node --test scripts/order-list-regression.test.mjs",
     "zip": "wxt zip"
   },
   "dependencies": {

@@ -94,7 +94,7 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 - **选择器集中管理**：ChatGPT DOM 选择器全部在 `DomAdapter` 的 `SELECTORS` 常量中，不要散落
 - **CacheStore 的 currentCache 是单会话热缓存**：`ensureCurrentCache` 在 conversationId 不匹配时会重建，这意味着跨会话操作前需要先 `loadConversation`
 - **防抖/节流常量**：定义在各自模块顶部（`MUTATION_DEBOUNCE_MS=500`, `SCROLL_THROTTLE_MS=300`, `SAVE_DEBOUNCE_MS=2000`）
-- **orderKey 使用 DOM 绝对位置**（`absoluteTop`），不是扫描索引——这使得消息排序在不同扫描轮次间保持稳定
+- **消息顺序使用持久 orderedIds**：`absoluteTop` / `orderKey` 只保留为局部扫描和旧字段兼容信息，不作为全局排序依据。新消息通过 anchor-splice 插入 `orderedIds`，已有消息的全局相对顺序默认不改
 - **Phase 4 未实现**：渐进式远距离跳转、跳转取消、失败 toast 仍在路线图中。当前点击未挂载消息会返回失败状态
 - **构建产物**：`.output/` 目录，`chrome-mv3` 为生产构建，`chrome-mv3-dev` 为开发构建
 
