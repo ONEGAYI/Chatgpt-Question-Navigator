@@ -6,6 +6,7 @@ import type { DomAdapter } from './domAdapter';
 import type { ScanDirection, ScanSegmentKind } from './orderList';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
+import type { UserScrollDirection } from './scrollDriver';
 
 const MUTATION_DEBOUNCE_MS = 500;
 const SCROLL_THROTTLE_MS = 300;
@@ -25,6 +26,7 @@ export class MessageScanner {
   private elementById = new Map<string, HTMLElement>();
   private mountedIds = new Set<string>();
   private cleanupScroll: (() => void) | null = null;
+  private cleanupUserScroll: (() => void) | null = null;
   private lastScanScrollTop: number | null = null;
   private lastObservedScrollTop: number | null = null;
   private lastObservedDirection: ScanDirection = 'unknown';
@@ -40,6 +42,7 @@ export class MessageScanner {
     this.mutationObserver = new MutationObserver(() => this.scheduleRescan());
     this.mutationObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     this.cleanupScroll = this.scrollDriver.onScroll(() => this.scheduleScrollCapture());
+    this.cleanupUserScroll = this.scrollDriver.onUserScroll((direction) => this.captureUserScrollDirection(direction));
     this.scheduleRescan();
   }
 
@@ -59,6 +62,7 @@ export class MessageScanner {
     this.mutationObserver?.disconnect();
     this.intersectionObserver?.disconnect();
     this.cleanupScroll?.();
+    this.cleanupUserScroll?.();
     this.elementById.clear();
     this.mountedIds.clear();
     this.lastScanScrollTop = null;
@@ -215,10 +219,15 @@ export class MessageScanner {
   }
 
   private getScanDirection(scrollTop: number): ScanDirection {
-    if (this.lastScanScrollTop === null) return 'unknown';
+    if (this.lastScanScrollTop === null) return this.lastObservedDirection;
     if (scrollTop < this.lastScanScrollTop) return 'up';
     if (scrollTop > this.lastScanScrollTop) return 'down';
     return this.lastObservedDirection;
+  }
+
+  private captureUserScrollDirection(direction: UserScrollDirection): void {
+    if (direction !== 'unknown') this.lastObservedDirection = direction;
+    this.lastObservedScrollTop = this.scrollDriver.getScrollTop();
   }
 
   private captureObservedScrollDirection(): void {

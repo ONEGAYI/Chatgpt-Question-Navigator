@@ -5,7 +5,7 @@ import type {
   ScannedUserMessageCandidate,
   StorageMeta
 } from '../shared/types';
-import { mergeOrderedSegments, orderMessagesByIds } from './orderList';
+import { inferDirectionFromScrollAnchor, mergeOrderedSegments, orderMessagesByIds } from './orderList';
 import type { OrderedIdSegment, ScanDirection, ScanSegmentKind } from './orderList';
 
 type StoredCandidate = Omit<ScannedUserMessageCandidate, 'element'>;
@@ -128,7 +128,12 @@ export class CacheStore {
 
       resolvedSegments.push({
         ids: segmentIds,
-        direction: segment.direction,
+        direction: segment.direction === 'unknown'
+          ? inferDirectionFromScrollAnchor({
+            segmentRatio: averageScrollRatio(segment.candidates),
+            existingRatios: existing.map((message) => message.lastKnownScrollRatio)
+          })
+          : segment.direction,
         kind: segment.kind
       });
     }
@@ -356,4 +361,10 @@ function appendMissingIds(existingIds: string[], candidateIds: string[]): string
     known.add(id);
   }
   return result;
+}
+
+function averageScrollRatio(candidates: StoredCandidate[]): number | null {
+  if (candidates.length === 0) return null;
+  const total = candidates.reduce((sum, candidate) => sum + candidate.scrollRatio, 0);
+  return total / candidates.length;
 }

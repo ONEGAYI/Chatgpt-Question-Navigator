@@ -7,6 +7,11 @@ export interface OrderedIdSegment {
   kind: ScanSegmentKind;
 }
 
+export interface SegmentScrollAnchor {
+  segmentRatio: number | null;
+  existingRatios: number[];
+}
+
 export function mergeOrderedIds(existingOrderedIds: string[], scanIds: string[]): string[] {
   return mergeOrderedSegments(existingOrderedIds, [{
     ids: scanIds,
@@ -21,6 +26,17 @@ export function mergeOrderedSegments(existingOrderedIds: string[], segments: Ord
     result = mergeOrderedSegment(result, segment);
   }
   return result;
+}
+
+export function inferDirectionFromScrollAnchor(anchor: SegmentScrollAnchor): ScanDirection {
+  const existingRatios = anchor.existingRatios.filter((ratio) => Number.isFinite(ratio));
+  if (anchor.segmentRatio === null || existingRatios.length === 0) return 'unknown';
+
+  const minExisting = Math.min(...existingRatios);
+  const maxExisting = Math.max(...existingRatios);
+  if (anchor.segmentRatio < minExisting) return 'up';
+  if (anchor.segmentRatio > maxExisting) return 'down';
+  return 'unknown';
 }
 
 export function orderMessagesByIds<T extends { localMessageId: string }>(messagesById: Map<string, T>, orderedIds: string[]): T[] {
