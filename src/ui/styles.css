@@ -184,32 +184,42 @@
 }
 
 .cqn-mini-mark {
+  position: relative;
   display: block;
-  box-sizing: content-box;
+  width: calc(20px * var(--cqn-mini-scale));
+  height: calc(13px * var(--cqn-mini-scale));
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  margin-top: calc(2px * var(--cqn-mini-scale));
+  background: transparent;
+}
+
+.cqn-mini-mark::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   width: calc(14px * var(--cqn-mini-scale));
   height: calc(3px * var(--cqn-mini-scale));
   border-radius: calc(1.5px * var(--cqn-mini-scale));
   background: var(--cqn-accent);
-  background-clip: content-box;
-  cursor: pointer;
-  border: 0;
-  padding: calc(5px * var(--cqn-mini-scale)) calc(2px * var(--cqn-mini-scale));
-  margin-top: calc(2px * var(--cqn-mini-scale));
 }
 
 .cqn-mini-mark:first-of-type {
   margin-top: calc(2px * var(--cqn-mini-scale));
 }
 
-.cqn-mini-mark.is-mounted {
+.cqn-mini-mark.is-mounted::after {
   opacity: 0.7;
 }
 
-.cqn-mini-mark.is-cached {
+.cqn-mini-mark.is-cached::after {
   opacity: 0.35;
 }
 
-.cqn-mini-mark.is-active {
+.cqn-mini-mark.is-active::after {
   width: calc(22px * var(--cqn-mini-scale));
   height: calc(4px * var(--cqn-mini-scale));
   border-radius: calc(2px * var(--cqn-mini-scale));
