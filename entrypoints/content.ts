@@ -24,15 +24,14 @@ export default defineContentScript({
     const clearCurrentSession = async (): Promise<void> => {
       const { conversationId } = runtimeStore.getSnapshot();
       if (!conversationId) return;
-      scanner.stop();
       await cacheStore.flush();
       try {
         await cacheStore.clearConversation(conversationId);
       } catch {
-        scanner.start();
         return;
       }
       runtimeStore.setMessages([]);
+      scanner.stop();
       await new Promise((resolve) => setTimeout(resolve, 3000));
       scanner.start();
     };
