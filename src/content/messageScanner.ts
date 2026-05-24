@@ -32,6 +32,15 @@ export class MessageScanner {
     this.scheduleRescan();
   }
 
+  clearState(): void {
+    this.elementById.clear();
+    this.mountedIds = new Set();
+    if (this.mutationTimer !== null) {
+      window.clearTimeout(this.mutationTimer);
+      this.mutationTimer = null;
+    }
+  }
+
   stop(): void {
     this.mutationObserver?.disconnect();
     this.intersectionObserver?.disconnect();
