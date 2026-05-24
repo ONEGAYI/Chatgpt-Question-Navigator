@@ -1,5 +1,6 @@
 import '../src/ui/styles.css';
 
+import { AutoCollector } from '../src/content/autoCollector';
 import { CacheStore } from '../src/content/cacheStore';
 import { DomAdapter } from '../src/content/domAdapter';
 import { JumpController } from '../src/content/jumpController';
@@ -20,6 +21,10 @@ export default defineContentScript({
     const urlWatcher = new UrlWatcher(domAdapter);
     const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver, runtimeStore);
     const jumpController = new JumpController(scanner, cacheStore, scrollDriver, runtimeStore);
+    const autoCollector = new AutoCollector(domAdapter, cacheStore, scrollDriver, runtimeStore, async () => {
+      scanner.clearState();
+      await scanner.rescan();
+    });
 
     const clearCurrentSession = async (): Promise<void> => {
       const { conversationId } = runtimeStore.getSnapshot();
@@ -36,6 +41,13 @@ export default defineContentScript({
       scanner.start();
     };
 
+    const startAutoCollect = async (): Promise<void> => {
+      const { conversationId } = runtimeStore.getSnapshot();
+      if (!conversationId) return;
+      await AutoCollector.writeIntent(conversationId, location.href);
+      location.reload();
+    };
+
     urlWatcher.onConversationChange(async (id, previousId) => {
       if (!id) return;
 
@@ -50,20 +62,52 @@ export default defineContentScript({
       scrollDriver.redetectScrollRoot('conversation-change');
     });
 
+    // 修正 #1: 在 urlWatcher.start() 前读 intent，避免回调竞态
+    const intent = await AutoCollector.readIntent();
+    const currentConvId = domAdapter.extractConversationId();
+    const shouldAutoCollectOnStartup = intent !== null && currentConvId !== null
+      && (intent.conversationId === currentConvId || intent.url === location.href);
+
+    if (shouldAutoCollectOnStartup) {
+      await AutoCollector.clearIntent();
+    }
+
     scrollDriver.init();
     urlWatcher.start();
-    scanner.start();
 
-    // Polling re-detection: ChatGPT renders content asynchronously,
-    // scroll container dimensions are 0 at content script init time.
-    let pollAttempts = 0;
-    const pollId = window.setInterval(() => {
-      pollAttempts++;
-      scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
-      if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
-        clearInterval(pollId);
-      }
-    }, 1000);
+    let pollId: number | undefined;
+
+    if (shouldAutoCollectOnStartup && currentConvId) {
+      // Auto-collect 路径：跳过 scanner.start()，等滚动根就绪后启动采集
+      let pollAttempts = 0;
+      pollId = window.setInterval(async () => {
+        pollAttempts++;
+        scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
+        if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
+          clearInterval(pollId);
+          pollId = undefined;
+          try {
+            await autoCollector.startFullCollection(currentConvId);
+          } catch (e) {
+            console.error('[CQN] Auto-collect failed:', e);
+          }
+          scanner.start();
+        }
+      }, 1000);
+    } else {
+      scanner.start();
+
+      // 正常启动的 polling redetect
+      let pollAttempts = 0;
+      pollId = window.setInterval(() => {
+        pollAttempts++;
+        scrollDriver.redetectScrollRoot(`init-poll-${pollAttempts}`);
+        if (scrollDriver.getScrollRoot().element || pollAttempts >= 10) {
+          clearInterval(pollId);
+          pollId = undefined;
+        }
+      }, 1000);
+    }
 
     // Debug: Ctrl+Shift+D logs scroll driver snapshot to console.
     // Content script runs in isolated world — inline <script> injection is blocked by CSP.
@@ -112,8 +156,23 @@ export default defineContentScript({
         }).catch((err) => sendResponse({ success: false, error: String(err) }));
         return true;
       }
+
+      if (msg.type === 'START_AUTO_COLLECT') {
+        const cid = runtimeStore.getSnapshot().conversationId;
+        if (cid) {
+          startAutoCollect().then(() => sendResponse({ success: true }))
+            .catch((err) => sendResponse({ success: false, error: String(err) }));
+          return true;
+        }
+      }
     });
 
-    await createShadowRootApp(ctx, { runtimeStore, jumpController, onClearCurrentSession: clearCurrentSession });
+    await createShadowRootApp(ctx, {
+      runtimeStore,
+      jumpController,
+      onClearCurrentSession: clearCurrentSession,
+      onStartAutoCollect: startAutoCollect,
+      autoCollector,
+    });
   }
 });
