@@ -13,7 +13,6 @@ chatgpt-question-navigator/
 │   │   ├── domAdapter.ts           # ChatGPT DOM 交互抽象层，选择器集中定义
 │   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
 │   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
-│   │   ├── orderList.ts            # 持久 orderedIds 合并模型，使用 anchor-splice 插入新消息
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
 │   │   ├── scrollDriver.ts         # 滚动容器抽象，区分用户滚动与程序滚动
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
@@ -26,9 +25,10 @@ chatgpt-question-navigator/
 │   │   └── types.ts                # 全局类型定义（CachedUserMessage, RuntimeState 等）
 │   └── ui/
 │       ├── MessageItem.tsx          # 单条消息列表项，搜索高亮 + hover 预览
+│       ├── MiniBar.tsx              # Mini 模式导航条，滑动窗口标记 + ▲/▼ 导航
 │       ├── SearchBox.tsx            # 搜索输入框（300ms 防抖）
 │       ├── ShadowRootApp.tsx        # Shadow DOM 挂载入口
-│       ├── Sidebar.tsx              # 主侧栏组件，状态订阅 + 搜索 + 折叠
+│       ├── Sidebar.tsx              # 主组件，三态切换（展开/Mini/折叠）+ 状态订阅
 │       └── styles.css               # Shadow DOM 内样式，CSS 变量支持暗色/亮色
 ├── docs/
 │   ├── Tree.md                      # 本文件
@@ -39,13 +39,12 @@ chatgpt-question-navigator/
 ├── public/
 │   └── icon.png                     # 扩展图标（16/32/48/128 复用）
 ├── scripts/
-│   ├── order-list-regression.test.mjs # orderedIds anchor-splice 回归测试
+│   ├── copy-build.mjs               # 构建后拷贝产物到 %TEMP% 统一加载路径
 │   └── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
 ├── .gitignore
 ├── CLAUDE.md                        # Claude Code 项目指引
 ├── README.md                        # 用户文档：安装、构建、加载、隐私说明
 ├── package.json
-├── pnpm-workspace.yaml
 ├── tsconfig.json                    # 继承 .wxt/tsconfig.json，strict + Preact JSX
 ├── web-ext.config.ts                # WXT dev 浏览器启动配置：持久化 Edge profile
 └── wxt.config.ts                    # WXT 配置：manifest、权限、图标
