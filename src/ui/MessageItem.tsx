@@ -7,16 +7,17 @@ interface MessageItemProps {
   index: number;
   active: boolean;
   mounted: boolean;
+  isJumping: boolean;
   searchQuery: string;
   onClick: (message: CachedUserMessage) => void;
 }
 
-function MessageItemComponent({ message, index, active, mounted, searchQuery, onClick }: MessageItemProps) {
+function MessageItemComponent({ message, index, active, mounted, isJumping, searchQuery, onClick }: MessageItemProps) {
   const parts = splitByQuery(message.preview, searchQuery);
 
   return (
     <button
-      className={`cqn-item${active ? ' is-active' : ''}`}
+      className={`cqn-item${active ? ' is-active' : ''}${isJumping ? ' is-jumping' : ''}`}
       type="button"
       onClick={() => onClick(message)}
     >
@@ -25,7 +26,9 @@ function MessageItemComponent({ message, index, active, mounted, searchQuery, on
         <span className="cqn-item-preview">
           {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
         </span>
-        <span className="cqn-item-meta">{mounted ? '● 当前可跳转' : '○ 已缓存'}</span>
+        <span className="cqn-item-meta">
+          {isJumping ? '⟳ 跳转中...' : mounted ? '● 当前可跳转' : '○ 已缓存'}
+        </span>
         <span className="cqn-hover-preview" role="tooltip">
           {message.textForSearch}
         </span>

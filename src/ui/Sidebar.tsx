@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
 import type { RuntimeState } from '../shared/types';
+import { JumpToast } from './JumpToast';
 import { MessageItem } from './MessageItem';
 import { SearchBox } from './SearchBox';
 
@@ -28,6 +29,8 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
     if (!query) return snapshot.messages;
     return snapshot.messages.filter((message) => message.textForSearch.toLowerCase().includes(query));
   }, [snapshot.messages, searchQuery]);
+
+  const { jumpState } = snapshot;
 
   if (collapsed) {
     return (
@@ -62,11 +65,14 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
             index={index}
             active={snapshot.activeMessageId === message.localMessageId}
             mounted={snapshot.mountedIds.has(message.localMessageId)}
+            isJumping={jumpState.status === 'jumping' && jumpState.targetId === message.localMessageId}
             searchQuery={searchQuery}
             onClick={(target) => void jumpController.jumpToMessage(target)}
           />
         ))}
       </nav>
+
+      <JumpToast jumpState={jumpState} onCancel={() => jumpController.cancelCurrent()} />
     </aside>
   );
 }
