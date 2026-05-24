@@ -8,6 +8,7 @@ export class ScrollDriver {
   private userScrollListeners = new Set<() => void>();
   private isProgrammatic = false;
   private cleanupFns: Array<() => void> = [];
+  private programmaticTimer: number | null = null;
 
   constructor(private readonly domAdapter: DomAdapter) {}
 
@@ -88,6 +89,11 @@ export class ScrollDriver {
   }
 
   destroy(): void {
+    if (this.programmaticTimer !== null) {
+      window.clearTimeout(this.programmaticTimer);
+      this.programmaticTimer = null;
+    }
+    this.isProgrammatic = false;
     this.cleanupFns.forEach((cleanup) => cleanup());
     this.cleanupFns = [];
     this.scrollListeners.clear();
@@ -100,8 +106,10 @@ export class ScrollDriver {
     const onScroll = () => {
       this.scrollListeners.forEach((listener) => listener());
       if (this.isProgrammatic) {
-        window.setTimeout(() => {
+        if (this.programmaticTimer !== null) window.clearTimeout(this.programmaticTimer);
+        this.programmaticTimer = window.setTimeout(() => {
           this.isProgrammatic = false;
+          this.programmaticTimer = null;
         }, 80);
       }
     };
@@ -121,13 +129,28 @@ export class ScrollDriver {
     scrollTarget.addEventListener('touchstart', onTouch, { passive: true });
     window.addEventListener('keydown', onKey);
 
+    const onPointer = (event: Event) => {
+      if (this.target === window) {
+        const node = event.target as Node | null;
+        if (node && node.getRootNode() !== document) return;
+      }
+      this.notifyUserScroll();
+    };
+    scrollTarget.addEventListener('pointerdown', onPointer, { passive: true });
+
     this.cleanupFns.push(() => scrollTarget.removeEventListener('wheel', onWheel));
     this.cleanupFns.push(() => scrollTarget.removeEventListener('touchstart', onTouch));
     this.cleanupFns.push(() => window.removeEventListener('keydown', onKey));
+    this.cleanupFns.push(() => scrollTarget.removeEventListener('pointerdown', onPointer));
   }
 
   private markProgrammatic(): void {
     this.isProgrammatic = true;
+    if (this.programmaticTimer !== null) window.clearTimeout(this.programmaticTimer);
+    this.programmaticTimer = window.setTimeout(() => {
+      this.isProgrammatic = false;
+      this.programmaticTimer = null;
+    }, 200);
   }
 
   private notifyUserScroll(): void {
