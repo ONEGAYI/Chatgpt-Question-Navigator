@@ -13,9 +13,15 @@ interface SidebarProps {
 export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
   const [snapshot, setSnapshot] = useState<RuntimeState>(() => runtimeStore.getSnapshot());
   const [collapsed, setCollapsed] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot())), [runtimeStore]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(searchInput), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   const messages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -42,7 +48,7 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
         </button>
       </header>
 
-      <SearchBox value={searchQuery} onChange={setSearchQuery} />
+      <SearchBox value={searchInput} onChange={setSearchInput} />
 
       <div className="cqn-status">
         Indexed {snapshot.messages.length} questions locally

@@ -126,6 +126,7 @@
 }
 
 .cqn-item-body {
+  position: relative;
   min-width: 0;
 }
 
@@ -148,6 +149,30 @@
   display: block;
   margin-top: 3px;
   font-size: 11px;
+}
+
+.cqn-hover-preview {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 0;
+  display: none;
+  width: min(360px, calc(100vw - 340px));
+  max-height: 200px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--cqn-border);
+  border-radius: 7px;
+  background: var(--cqn-bg-primary);
+  color: var(--cqn-text-primary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.cqn-item:hover .cqn-hover-preview {
+  display: block;
 }
 
 @media (prefers-color-scheme: light) {

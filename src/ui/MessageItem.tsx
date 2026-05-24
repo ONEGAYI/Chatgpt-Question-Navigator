@@ -17,7 +17,6 @@ function MessageItemComponent({ message, index, active, mounted, searchQuery, on
   return (
     <button
       className={`cqn-item${active ? ' is-active' : ''}`}
-      title={message.textForSearch}
       type="button"
       onClick={() => onClick(message)}
     >
@@ -27,6 +26,9 @@ function MessageItemComponent({ message, index, active, mounted, searchQuery, on
           {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
         </span>
         <span className="cqn-item-meta">{mounted ? '● 当前可跳转' : '○ 已缓存'}</span>
+        <span className="cqn-hover-preview" role="tooltip">
+          {message.textForSearch}
+        </span>
       </span>
     </button>
   );
