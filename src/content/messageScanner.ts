@@ -29,6 +29,7 @@ export class MessageScanner {
     this.mutationObserver = new MutationObserver(() => this.scheduleRescan());
     this.mutationObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     this.cleanupScroll = this.scrollDriver.onScroll(() => this.scheduleScrollCapture());
+    this.scheduleRescan();
   }
 
   stop(): void {
