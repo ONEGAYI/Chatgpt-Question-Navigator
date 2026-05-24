@@ -69,6 +69,14 @@ export class ScrollDriver {
     el.scrollIntoView(options);
   }
 
+  getAbsoluteTop(element: HTMLElement): number {
+    if (this.target === window) {
+      return element.getBoundingClientRect().top + window.scrollY;
+    }
+    const container = this.target as HTMLElement;
+    return container.scrollTop + (element.getBoundingClientRect().top - container.getBoundingClientRect().top);
+  }
+
   onScroll(callback: () => void): () => void {
     this.scrollListeners.add(callback);
     return () => this.scrollListeners.delete(callback);

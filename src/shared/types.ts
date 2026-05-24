@@ -33,7 +33,7 @@ export interface ScannedUserMessageCandidate {
   textForSearch: string;
   scrollRatio: number;
   scrollTop: number;
-  domOrderIndex: number;
+  absoluteTop: number;
   element: HTMLElement;
 }
 

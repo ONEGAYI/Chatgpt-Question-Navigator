@@ -92,7 +92,7 @@ export class CacheStore {
         lastSeenAt: now,
         lastKnownScrollTop: candidate.scrollTop,
         lastKnownScrollRatio: candidate.scrollRatio,
-        orderKey: candidate.domOrderIndex
+        orderKey: candidate.absoluteTop
       };
 
       if (!matched || this.hasMeaningfulChange(matched, next)) {
@@ -201,7 +201,7 @@ export class CacheStore {
       .filter((message) => message.textHash === candidate.textHash && !usedExisting.has(message.localMessageId))
       .map((message) => ({
         message,
-        distance: Math.abs(message.lastKnownScrollRatio - candidate.scrollRatio) + Math.abs(message.orderKey - candidate.domOrderIndex) * 0.01
+        distance: Math.abs(message.lastKnownScrollRatio - candidate.scrollRatio) + Math.abs(message.orderKey - candidate.absoluteTop) * 0.001
       }))
       .sort((a, b) => a.distance - b.distance);
 

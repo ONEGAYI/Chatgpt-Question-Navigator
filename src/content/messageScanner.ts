@@ -62,7 +62,7 @@ export class MessageScanner {
         textForSearch: toSearchText(text),
         scrollRatio: this.scrollDriver.getScrollRatio(),
         scrollTop: this.scrollDriver.getScrollTop(),
-        domOrderIndex: index,
+        absoluteTop: this.scrollDriver.getAbsoluteTop(element),
         element
       });
     }
@@ -109,7 +109,7 @@ export class MessageScanner {
       textForSearch: target.textForSearch,
       scrollRatio,
       scrollTop,
-      domOrderIndex: target.orderKey
+      absoluteTop: target.orderKey
     }]);
   }
 
@@ -144,7 +144,7 @@ export class MessageScanner {
     ]));
 
     for (const candidate of candidates) {
-      const localId = messagesByIdentity.get(`${candidate.textHash}:${candidate.domOrderIndex}`);
+      const localId = messagesByIdentity.get(`${candidate.textHash}:${candidate.absoluteTop}`);
       if (localId) this.elementById.set(localId, candidate.element);
     }
   }
