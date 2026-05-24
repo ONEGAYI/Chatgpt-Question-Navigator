@@ -31,7 +31,19 @@ pnpm zip              # 打包 zip
 
 ## 架构
 
-入口为 `entrypoints/content.ts`（WXT content script），装配所有模块后启动扫描和 UI。
+入口为 `entrypoints/content.ts`（WXT content script），装配所有模块后启动扫描和 UI。Popup 入口为 `entrypoints/popup/index.html`，WXT 自动注册为 `action.default_popup`。
+
+### Popup 层 (`src/popup/`)
+
+浏览器扩展 Popup 页面，通过点击扩展图标打开。使用 Preact 渲染，直接读取 `chrome.storage.local` 显示存储状态，通过 `chrome.runtime.sendMessage` 向 content script 发送缓存管理命令。
+
+- `PopupApp.tsx` — 主组件：存储用量仪表、对话列表、缓存操作按钮（逐条删除、清空全部、LRU 清理）
+- `popup.css` — Popup 样式，复用侧栏 CSS 变量体系
+
+Popup → Content Script 通信协议：
+- `{ type: 'CLEAR_CONVERSATION', id }` — 删除单个对话缓存
+- `{ type: 'CLEAR_ALL' }` — 清空所有缓存
+- `{ type: 'LRU_CLEANUP' }` — 手动触发 LRU 淘汰
 
 ### 内容层 (`src/content/`)
 
