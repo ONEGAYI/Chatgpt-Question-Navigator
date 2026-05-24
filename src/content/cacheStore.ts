@@ -69,6 +69,27 @@ export class CacheStore {
     this.dirty = false;
   }
 
+  /**
+   * 原子替换对话消息 — 仅由 AutoCollector 调用。
+   * 同时写入 messages、orderedIds、orderMode='canonical'。
+   */
+  async replaceConversationMessages(
+    conversationId: string,
+    messages: CachedUserMessage[]
+  ): Promise<void> {
+    const orderedIds = messages.map((m) => m.localMessageId);
+    const cache: ConversationCache = {
+      conversationId,
+      updatedAt: Date.now(),
+      messages,
+      orderedIds,
+      orderMode: 'canonical',
+    };
+    this.currentCache = this.normalizeCache(cache);
+    this.dirty = true;
+    await this.saveConversation(this.currentCache);
+  }
+
   async resolveScannedCandidates(conversationId: string, candidates: StoredCandidate[]): Promise<ResolveResult> {
     return this.resolveScannedSegments(conversationId, [{
       candidates,
@@ -110,7 +131,9 @@ export class CacheStore {
           lastSeenAt: now,
           lastKnownScrollTop: candidate.scrollTop,
           lastKnownScrollRatio: candidate.scrollRatio,
-          orderKey: matched?.orderKey ?? candidate.absoluteTop
+          orderKey: matched?.orderKey ?? (this.currentCache?.orderMode === 'canonical'
+            ? (existing.length > 0 ? Math.max(...existing.map((m) => m.orderKey)) + 1 + candidateIndex : candidateIndex)
+            : candidate.absoluteTop)
         };
 
         if (!matched || this.hasMeaningfulChange(matched, next)) {
@@ -138,11 +161,29 @@ export class CacheStore {
       });
     }
 
-    const orderedIds = mergeOrderedSegments(existingOrderedIds, resolvedSegments);
+    let orderedIds: string[];
+
+    if (this.currentCache?.orderMode === 'canonical') {
+      // canonical 模式：不调用 mergeOrderedSegments，只 append 新消息到末尾
+      const knownIds = new Set(existingOrderedIds);
+      const newIds: string[] = [];
+      for (const resolved of resolvedCandidates) {
+        if (!knownIds.has(resolved.localMessageId)) {
+          newIds.push(resolved.localMessageId);
+          knownIds.add(resolved.localMessageId);
+        }
+      }
+      orderedIds = [...existingOrderedIds, ...newIds];
+    } else {
+      // incremental 模式：使用原有的 mergeOrderedSegments
+      orderedIds = mergeOrderedSegments(existingOrderedIds, resolvedSegments);
+    }
+
     const allMessages = orderMessagesByIds(nextMessagesById, orderedIds);
     if (!arraysEqual(existingOrderedIds, orderedIds)) this.dirty = true;
 
     this.currentCache = {
+      ...this.currentCache!,
       conversationId,
       updatedAt: now,
       messages: allMessages,
