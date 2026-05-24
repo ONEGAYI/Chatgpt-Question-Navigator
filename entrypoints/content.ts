@@ -51,6 +51,12 @@ export default defineContentScript({
     urlWatcher.onConversationChange(async (id, previousId) => {
       if (!id) return;
 
+      // Cancel active auto-collect when navigating to a different conversation
+      const collectProgress = autoCollector.getProgress();
+      if (collectProgress.phase === 'collecting' || collectProgress.phase === 'preparing') {
+        autoCollector.cancel();
+      }
+
       if (previousId?.startsWith('temp:') && !id.startsWith('temp:')) {
         await cacheStore.migrateTempCache(previousId, id);
       }

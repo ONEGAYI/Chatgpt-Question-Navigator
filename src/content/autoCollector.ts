@@ -18,6 +18,7 @@ const SETTLE_POLL_MS = 100;
 const STAGNANT_LIMIT = 3;
 const NO_MOVEMENT_LIMIT = 5;
 const FALLBACK_MAX_ROUNDS = 50;
+const CHECKPOINT_EVERY_ROUNDS = 20;
 
 // --- AutoCollector ---
 
@@ -92,6 +93,7 @@ export class AutoCollector {
 
       const metrics = this.scrollDriver.getMetrics();
       if (metrics.maxScrollTop <= 8) {
+        this.foundCount = this.countHydratedUserMessages();
         await this.finalize(conversationId);
         return;
       }
@@ -112,6 +114,11 @@ export class AutoCollector {
           this.buildUserMessagesFromFrames(conversationId)
         );
         this.emitProgress();
+
+        // Periodic checkpoint to persist progress across crashes
+        if (this.round % CHECKPOINT_EVERY_ROUNDS === 0) {
+          await this.checkpointProgress(conversationId);
+        }
 
         // End conditions
         if (this.frames.size - hydratedAfter === 0) break;
@@ -157,6 +164,15 @@ export class AutoCollector {
     } finally {
       this.cleanupUserScroll?.();
       this.cleanupUserScroll = null;
+      // Clear progress after terminal states so UI resets to normal
+      const terminalPhase = this.phase;
+      if (terminalPhase === 'cancelled' || terminalPhase === 'completed' || terminalPhase === 'failed') {
+        setTimeout(() => {
+          if (this.phase === terminalPhase) {
+            this.runtimeStore.setAutoCollectProgress(null);
+          }
+        }, 3000);
+      }
     }
   }
 
@@ -350,6 +366,11 @@ export class AutoCollector {
     }
   }
 
+  private async checkpointProgress(conversationId: string): Promise<void> {
+    const messages = this.buildUserMessagesFromFrames(conversationId);
+    await this.cacheStore.replaceConversationMessages(conversationId, messages);
+  }
+
   // --- Internal: Canonical finalization ---
 
   private async finalize(conversationId: string): Promise<void> {
@@ -359,7 +380,11 @@ export class AutoCollector {
     await this.cacheStore.replaceConversationMessages(conversationId, messages);
     this.runtimeStore.setMessages(messages);
 
-    await this.afterReplace?.();
+    try {
+      await this.afterReplace?.();
+    } catch (e) {
+      console.warn('[CQN] afterReplace callback failed:', e);
+    }
 
     this.setPhase('completed');
   }
