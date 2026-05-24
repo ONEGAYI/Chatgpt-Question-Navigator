@@ -4,6 +4,7 @@ const SELECTORS = {
   userMessage: '[data-message-author-role="user"]',
   messageText: '.whitespace-pre-wrap, .message-body, [data-message-author-role] > div',
   excludeButtons: 'button, [role="button"], .copy-button, .edit-button',
+  turnSkeleton: 'section[data-testid^="conversation-turn-"]',
 } as const;
 
 const OBSERVED_ID_ATTRIBUTES = ['data-id', 'data-message-id'] as const;
@@ -35,5 +36,32 @@ export class DomAdapter {
       if (value?.trim()) return value.trim();
     }
     return null;
+  }
+
+  findTurnSkeletons(): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.turnSkeleton));
+  }
+
+  extractTurnKey(el: HTMLElement): string | null {
+    const testId = el.getAttribute('data-testid');
+    if (!testId?.startsWith('conversation-turn-')) return null;
+    return testId;
+  }
+
+  extractTurnIndex(turnKey: string): number {
+    const match = turnKey.match(/^conversation-turn-(\d+)$/);
+    return match ? parseInt(match[1]!, 10) : -1;
+  }
+
+  extractTurnRole(el: HTMLElement): 'user' | 'assistant' | 'unknown' {
+    if (el.querySelector('[data-message-author-role="user"]')) return 'user';
+    if (el.querySelector('[data-message-author-role="assistant"]')) return 'assistant';
+    return 'unknown';
+  }
+
+  findTurnKeyForElement(el: HTMLElement): string | null {
+    const turnEl = el.closest<HTMLElement>(SELECTORS.turnSkeleton);
+    if (!turnEl) return null;
+    return this.extractTurnKey(turnEl);
   }
 }
