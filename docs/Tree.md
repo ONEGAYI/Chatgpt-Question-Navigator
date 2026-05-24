@@ -31,12 +31,15 @@ chatgpt-question-navigator/
 │       └── specs/                   # Superpowers spec 文件
 ├── public/
 │   └── icon.png                     # 扩展图标（16/32/48/128 复用）
+├── scripts/
+│   └── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
 ├── .gitignore
 ├── CLAUDE.md                        # Claude Code 项目指引
 ├── README.md                        # 用户文档：安装、构建、加载、隐私说明
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── tsconfig.json                    # 继承 .wxt/tsconfig.json，strict + Preact JSX
+├── web-ext.config.ts                # WXT dev 浏览器启动配置：持久化 Edge profile
 └── wxt.config.ts                    # WXT 配置：manifest、权限、图标
 ```
 

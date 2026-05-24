@@ -7,6 +7,7 @@
     "dev": "wxt",
     "dev:chrome": "wxt -b chrome",
     "dev:edge": "wxt -b edge",
+    "dev:edge:isolated": "node scripts/dev-edge-isolated.mjs",
     "build": "wxt build",
     "build:chrome": "wxt build -b chrome",
     "build:edge": "wxt build -b edge",
