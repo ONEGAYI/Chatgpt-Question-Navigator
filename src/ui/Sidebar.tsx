@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
-import type { RuntimeState } from '../shared/types';
+import type { CachedUserMessage, RuntimeState } from '../shared/types';
 import { MessageItem } from './MessageItem';
 import { SearchBox } from './SearchBox';
+
+interface HoverState {
+  message: CachedUserMessage;
+  rect: DOMRect;
+}
 
 interface SidebarProps {
   runtimeStore: RuntimeStore;
@@ -15,6 +20,7 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [hover, setHover] = useState<HoverState | null>(null);
 
   useEffect(() => runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot())), [runtimeStore]);
 
@@ -40,33 +46,51 @@ export function Sidebar({ runtimeStore, jumpController }: SidebarProps) {
   }
 
   return (
-    <aside className="cqn-sidebar">
-      <header className="cqn-header">
-        <strong>ChatGPT Navigator</strong>
-        <button className="cqn-collapse" type="button" onClick={() => setCollapsed(true)} title="折叠导航">
-          ×
-        </button>
-      </header>
+    <>
+      <aside className="cqn-sidebar">
+        <header className="cqn-header">
+          <strong>ChatGPT Navigator</strong>
+          <button className="cqn-collapse" type="button" onClick={() => setCollapsed(true)} title="折叠导航">
+            ×
+          </button>
+        </header>
 
-      <SearchBox value={searchInput} onChange={setSearchInput} />
+        <SearchBox value={searchInput} onChange={setSearchInput} />
 
-      <div className="cqn-status">
-        Indexed {snapshot.messages.length} questions locally
-      </div>
+        <div className="cqn-status">
+          Indexed {snapshot.messages.length} questions locally
+        </div>
 
-      <nav className="cqn-list" aria-label="ChatGPT user questions">
-        {messages.map((message, index) => (
-          <MessageItem
-            key={message.localMessageId}
-            message={message}
-            index={index}
-            active={snapshot.activeMessageId === message.localMessageId}
-            mounted={snapshot.mountedIds.has(message.localMessageId)}
-            searchQuery={searchQuery}
-            onClick={(target) => void jumpController.jumpToMessage(target)}
-          />
-        ))}
-      </nav>
-    </aside>
+        <nav className="cqn-list" aria-label="ChatGPT user questions">
+          {messages.map((message, index) => (
+            <MessageItem
+              key={message.localMessageId}
+              message={message}
+              index={index}
+              active={snapshot.activeMessageId === message.localMessageId}
+              mounted={snapshot.mountedIds.has(message.localMessageId)}
+              searchQuery={searchQuery}
+              onClick={(target) => void jumpController.jumpToMessage(target)}
+              onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
+              onHoverEnd={() => setHover(null)}
+            />
+          ))}
+        </nav>
+      </aside>
+
+      {hover && (
+        <span
+          className="cqn-hover-preview"
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            top: `${hover.rect.top}px`,
+            right: `${window.innerWidth - hover.rect.left + 12}px`,
+          }}
+        >
+          {hover.message.textForSearch}
+        </span>
+      )}
+    </>
   );
 }
