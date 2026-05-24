@@ -50,14 +50,16 @@ pnpm compile
 pnpm build
 ```
 
-构建产物位于 `.output/chrome-mv3`。
+构建完成后，产物会自动拷贝到 `%TEMP%\Chatgpt-Question-Navigator`（即系统临时目录下的 `Chatgpt-Question-Navigator` 文件夹）。原始构建产物仍保留在 `.output/chrome-mv3`。
+
+> **为什么拷贝到临时目录？** 当使用 git worktree 在多个分支间并行开发时，每个工作树有独立的 `.output` 目录。浏览器只需固定加载临时目录中的副本，切换工作树后重新 `pnpm build` 即可更新，无需反复修改扩展加载路径。
 
 ## Chrome 加载方式
 
 1. 打开 `chrome://extensions/`。
 2. 开启右上角「开发者模式」。
 3. 点击「加载已解压的扩展程序」。
-4. 选择 `.output/chrome-mv3`。
+4. 选择 `%TEMP%\Chatgpt-Question-Navigator`（即系统临时目录下的 `Chatgpt-Question-Navigator` 文件夹）。
 5. 打开 ChatGPT 页面验证右侧导航侧栏。
 
 ## Edge 加载方式
@@ -65,7 +67,7 @@ pnpm build
 1. 打开 `edge://extensions/`。
 2. 开启左侧「开发人员模式」。
 3. 点击「加载解压缩的扩展」。
-4. 选择 `.output/chrome-mv3`。
+4. 选择 `%TEMP%\Chatgpt-Question-Navigator`（即系统临时目录下的 `Chatgpt-Question-Navigator` 文件夹）。
 5. 打开 ChatGPT 页面验证右侧导航侧栏。
 
 ## 隐私说明

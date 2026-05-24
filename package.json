@@ -8,9 +8,9 @@
     "dev:chrome": "wxt -b chrome",
     "dev:edge": "wxt -b edge",
     "dev:edge:isolated": "node scripts/dev-edge-isolated.mjs",
-    "build": "wxt build",
-    "build:chrome": "wxt build -b chrome",
-    "build:edge": "wxt build -b edge",
+    "build": "wxt build && node scripts/copy-build.mjs",
+    "build:chrome": "wxt build -b chrome && node scripts/copy-build.mjs",
+    "build:edge": "wxt build -b edge && node scripts/copy-build.mjs",
     "compile": "tsc --noEmit",
     "zip": "wxt zip"
   },
