@@ -1,0 +1,46 @@
+# PR Agent 配置 - 使用 DeepSeek V4 Flash 模型
+# 文档: https://github.com/Codium-ai/pr-agent/blob/main/docs/docs/usage-guide/changing_a_model.md
+
+[config]
+model = "deepseek/deepseek-v4-flash"
+fallback_models = ["deepseek/deepseek-v4-flash"]
+custom_model_max_tokens = 512000
+response_language = "zh-CN"
+ignore_pr_labels = ["skip-review"]
+
+[ignore]
+glob = [
+    # 构建产物
+    ".output/**",
+    ".wxt/**",
+    "**/*.lock",
+    "*.zip",
+    # 文档
+    "docs/**",
+    "*.md",
+    # 工具配置（非业务代码）
+    ".vscode/**",
+    ".claude/**",
+    ".serena/**",
+    ".gitignore",
+    ".coderabbit.yaml",
+    ".pr_agent.toml",
+    # 公共资源
+    "public/**",
+    # WXT 框架配置
+    "wxt.config.ts",
+    "tsconfig.json",
+    "package.json",
+]
+
+[pr_reviewer]
+inline_code_comments = true
+extra_instructions = "关注代码逻辑正确性、潜在 bug、安全问题。不要评论代码风格或格式问题。"
+
+[pr_code_suggestions]
+extra_instructions = "只建议确实能改善代码质量或修复问题的改动，不要做纯风格调整。"
+
+[github_action_config]
+auto_review = true
+auto_describe = false
+auto_improve = false
