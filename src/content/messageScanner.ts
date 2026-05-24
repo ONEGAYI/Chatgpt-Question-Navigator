@@ -106,7 +106,7 @@ export class MessageScanner {
         scrollTop,
         absoluteTop: this.scrollDriver.getAbsoluteTop(element),
         element,
-        turnKey: null,
+        turnKey: this.domAdapter.findTurnKeyForElement(element),
       });
     }
 
