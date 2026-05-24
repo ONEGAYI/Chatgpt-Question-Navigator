@@ -51,6 +51,7 @@ export class ScrollDriver {
   private scrollListeners = new Set<() => void>();
   private userScrollListeners = new Set<(direction: UserScrollDirection) => void>();
   private isProgrammatic = false;
+  private isDetecting = false;
   private cleanupFns: Array<() => void> = [];
   private touchStartY: number | null = null;
   private lastOpResult: ScrollOperationResult | null = null;
@@ -60,8 +61,10 @@ export class ScrollDriver {
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   private static readonly REDETECT_COOLDOWN_MS = 5000;
+  private static readonly REDETECT_COOLDOWN_NULL_ROOT_MS = 2000;
   private static readonly MIN_SCROLL_PX = 8;
   private static readonly MIN_CLIENT_HEIGHT = 100;
+  private static readonly MAX_DESCENDANT_CHECKS = 100;
   private static readonly PROGRAMMATIC_CLEAR_MS = 80;
   private static readonly FALLBACK_CLEAR_MS = 300;
 
@@ -125,6 +128,11 @@ export class ScrollDriver {
     return true;
   }
 
+  /** Public entry point for root validation, called by MessageScanner before rescan. */
+  triggerRootCheck(): void {
+    this.ensureValidRoot();
+  }
+
   /**
    * 在 scroll 操作前调用。
    * - element root disconnected → 立即 redetect
@@ -150,6 +158,15 @@ export class ScrollDriver {
   }
 
   private detectScrollRoot(): ScrollRoot {
+    this.isDetecting = true;
+    try {
+      return this.detectScrollRootInner();
+    } finally {
+      this.isDetecting = false;
+    }
+  }
+
+  private detectScrollRootInner(): ScrollRoot {
     const candidates = this.collectCandidates();
 
     const scored = candidates
@@ -224,7 +241,10 @@ export class ScrollDriver {
     if (main) {
       addCandidate(main, 'main', '<main> element');
       const descendants = main.querySelectorAll<HTMLElement>('*');
+      let descendantChecks = 0;
       for (const el of descendants) {
+        if (descendantChecks >= ScrollDriver.MAX_DESCENDANT_CHECKS) break;
+        descendantChecks++;
         const style = getComputedStyle(el);
         if (['auto', 'scroll', 'overlay'].includes(style.overflowY)) {
           addCandidate(el, 'main-descendant', `main descendant overflow-y:${style.overflowY}`);
@@ -623,13 +643,12 @@ export class ScrollDriver {
     return false;
   }
 
-  private isAtScrollBoundary(metrics: ScrollMetrics): boolean {
-    return metrics.scrollTop <= 0 || metrics.scrollTop >= metrics.maxScrollTop;
-  }
-
   private mayRedetect(): boolean {
     const now = Date.now();
-    if (now - this.lastRedetectTime < ScrollDriver.REDETECT_COOLDOWN_MS) return false;
+    const cooldown = this.scrollRoot.element
+      ? ScrollDriver.REDETECT_COOLDOWN_MS
+      : ScrollDriver.REDETECT_COOLDOWN_NULL_ROOT_MS;
+    if (now - this.lastRedetectTime < cooldown) return false;
     this.lastRedetectTime = now;
     return true;
   }
@@ -656,6 +675,15 @@ export class ScrollDriver {
   // --- Private: Listener Binding ---
 
   private rebindAllListeners(): void {
+    if (this.programmaticTimer !== null) {
+      clearTimeout(this.programmaticTimer);
+      this.programmaticTimer = null;
+    }
+    if (this.fallbackTimer !== null) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
+    }
+    this.isProgrammatic = false;
     this.cleanupFns.forEach((fn) => fn());
     this.cleanupFns = [];
     this.bindScrollListener();
@@ -671,6 +699,7 @@ export class ScrollDriver {
     const scrollTarget = this.scrollRoot.kind === 'window' ? window : this.scrollRoot.target;
 
     const onScroll = () => {
+      if (this.isDetecting) return;
       if (this.fallbackTimer !== null) {
         clearTimeout(this.fallbackTimer);
         this.fallbackTimer = null;

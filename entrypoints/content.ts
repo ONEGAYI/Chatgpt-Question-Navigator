@@ -53,13 +53,16 @@ export default defineContentScript({
     // Debug: Ctrl+Shift+D logs scroll driver snapshot to console.
     // Content script runs in isolated world — inline <script> injection is blocked by CSP.
     // A keyboard shortcut bypasses CSP entirely.
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
+    const onDebugKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'D') {
         console.log('[CQN] ScrollDriver debug:', scrollDriver.getDebugSnapshot());
       }
-    });
+    };
+    window.addEventListener('keydown', onDebugKey);
 
     window.addEventListener('beforeunload', () => {
+      if (pollId !== undefined) clearInterval(pollId);
+      window.removeEventListener('keydown', onDebugKey);
       void cacheStore.flush();
       scanner.stop();
       scrollDriver.destroy();

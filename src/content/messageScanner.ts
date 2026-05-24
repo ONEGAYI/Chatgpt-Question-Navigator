@@ -71,6 +71,8 @@ export class MessageScanner {
   }
 
   async rescan(): Promise<ScanResult> {
+    this.scrollDriver.triggerRootCheck();
+
     const domConversationId = this.domAdapter.extractConversationId();
     const storedConversationId = this.runtimeStore.getSnapshot().conversationId;
     const conversationId = domConversationId ?? storedConversationId;
