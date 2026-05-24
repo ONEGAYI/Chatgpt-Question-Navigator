@@ -19,7 +19,7 @@ export default defineContentScript({
     const runtimeStore = new RuntimeStore();
     const urlWatcher = new UrlWatcher(domAdapter);
     const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver, runtimeStore);
-    const jumpController = new JumpController();
+    const jumpController = new JumpController(scanner, cacheStore, scrollDriver, runtimeStore);
 
     urlWatcher.onConversationChange(async (id, previousId) => {
       if (!id) return;
