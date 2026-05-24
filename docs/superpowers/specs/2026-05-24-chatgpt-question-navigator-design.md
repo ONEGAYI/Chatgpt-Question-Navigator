@@ -1,7 +1,7 @@
 # ChatGPT Question Navigator — 完整设计文档
 
 > 日期：2026-05-24
-> 状态：修订版 v4
+> 状态：修订版 v5
 
 ## 1. 项目概述
 
@@ -141,7 +141,7 @@ interface CachedUserMessage {
   role: 'user';
   textForSearch: string;        // 截断到 2000 chars，用于搜索匹配
   preview: string;              // 前 80-150 字，用于侧栏列表显示
-  textHash: string;             // SHA-256 前 8 位
+  textHash: string;             // SHA-256 前 16 hex chars（64 bit，避免短 hash 碰撞）
   occurrenceIndex: number;      // 同一 conversationId + textHash 下稳定分配的序号
   firstSeenAt: number;          // timestamp
   lastSeenAt: number;
@@ -229,6 +229,19 @@ interface ScanResult {
 ### cacheStore 接口
 
 ```typescript
+// resolveScannedCandidates 返回的完整结果
+interface ResolveResult {
+  // 合并后的完整消息列表（当前 DOM resolved + 历史缓存中的 cached-only 消息）
+  // runtimeStore.setMessages 必须使用此字段，否则会丢失 cached-only 消息
+  allMessages: CachedUserMessage[];
+
+  // 仅当前 DOM 中 resolved 的消息 localMessageId 集合
+  resolvedMounted: Set<string>;
+
+  // 本次新增或更新的消息（有实际变更的，用于判断是否需要保存）
+  newOrUpdated: CachedUserMessage[];
+}
+
 interface CacheStore {
   // 存储操作
   loadConversation(id: string): Promise<ConversationCache | null>;
@@ -236,13 +249,13 @@ interface CacheStore {
   clearConversation(id: string): Promise<void>;
   clearAll(): Promise<void>;
 
-  // 核心：将扫描候选解析为确定的 CachedUserMessage[]
-  // 综合 observedDomMessageId、textHash、scrollRatio、orderKey、DOM 顺序匹配已有缓存
-  // 匹配到的保持原 localMessageId；匹配不到的分配新 occurrenceIndex
+  // 核心：将扫描候选与 currentCache 合并解析
+  // 基于 currentCache（内存副本）匹配候选，返回 ResolveResult
+  // 异步：因为可能需要写回 storage
   resolveScannedCandidates(
     conversationId: string,
     candidates: Omit<ScannedUserMessageCandidate, 'element'>[]
-  ): CachedUserMessage[];
+  ): Promise<ResolveResult>;
 
   // temp cache migration
   migrateTempCache(tempId: string, realId: string): Promise<void>;
@@ -267,7 +280,7 @@ Step 1: 精确匹配 — observedDomMessageId
   candidate.observedDomMessageId 存在 → 在 existing 中找 localMessageId 包含该 ID 的
   匹配到 → 保持原 localMessageId，更新 scroll 信息
 
-Step 2: 模糊匹配 — textHash + 综合线索
+Step 2: 模糊匹配 — textHash + 综合线索（含置信度阈值）
   无 observedDomMessageId 的 candidate，按 textHash 分组
   对每个 textHash 组：
     获取 existing 中同 textHash 的所有未匹配消息
@@ -277,6 +290,15 @@ Step 2: 模糊匹配 — textHash + 综合线索
       - orderKey 与 domOrderIndex 的相对一致性
       - DOM 顺序与缓存顺序的对应关系
     贪心匹配：差距最小的先配对
+
+  ⚠ 置信度阈值：
+    匹配时计算综合距离分数。如果最佳匹配的距离超过阈值，
+    不强行匹配 → 宁可分配新 occurrenceIndex
+    scrollRatio 差距 > 0.15（15% of viewport travel）→ 不匹配
+    orderKey 差距超过当前可见范围跨度 × 2 → 不匹配
+    同 textHash 多条候选/多条缓存时，如果无法明确区分 → 全部分配新 occurrenceIndex
+    核心原则：宁可多分配 occurrenceIndex（后续手动清理），不可误合并
+
     匹配到 → 保持原 localMessageId
     未匹配到 → 分配新 occurrenceIndex，生成新 localMessageId
 
@@ -289,11 +311,31 @@ Step 3: 孤儿检测
 - 不会在每次 rescan 时生成新 ID（已匹配到的保持原 ID）
 - 消息临时从 DOM 消失后重新出现时，能通过 scrollRatio 等线索重新关联
 
+### cacheStore 内存模型
+
+```
+loadConversation(id) → 从 storage 读取 → 持有 currentCache 内存副本
+                                              ↓
+resolveScannedCandidates() → 在内存中合并候选到 currentCache
+                              → 返回 ResolveResult（allMessages 包含合并后的完整列表）
+                              → 标记 dirty
+                              ↓
+                         debounce 2s → saveCurrentCache() → 写回 storage
+                                        ↓
+                                     getBytesInUse + LRU 检查
+```
+
+- `currentCache`：当前会话的内存副本，loadConversation 后持有
+- `resolveScannedCandidates`：同步修改 currentCache，标记 dirty
+- `saveCurrentCache`：debounce 2s，仅 dirty 时写入 storage
+- URL 切换时：先 saveCurrentCache（flush），再 loadConversation 新会话
+
 ### cacheStore 职责
 
 1. **读写 chrome.storage.local** — 按 `conv:{conversationId}` 为 key 存储；维护 `meta` key
-2. **resolveScannedCandidates** — 稳定身份解析（上述算法）
-3. **批量保存** — debounce 2s
+2. **currentCache 内存模型** — loadConversation 持有内存副本，resolve 在内存中合并，debounce 异步写回
+3. **resolveScannedCandidates** — 稳定身份解析，返回 ResolveResult（allMessages 含 cached-only 消息）
+4. **批量保存** — debounce 2s，仅 dirty 时写入
 4. **存储容量控制**：
    - textForSearch 截断到 2000 chars，preview 80-150 chars
    - 保存后 getBytesInUse 检查，超过 8MB 阈值执行 LRU 清理
@@ -350,9 +392,12 @@ DOM 扫描 → messageScanner.rescan()
               ↓
          生成 ScannedUserMessageCandidate[]
               ↓
-         cacheStore.resolveScannedCandidates(candidates) → CachedUserMessage[]
+         await cacheStore.resolveScannedCandidates(conversationId, candidates)
               ↓
-         runtimeStore.setMessages(resolved) + setMountedState(mountedIds, elementById)
+         返回 ResolveResult { allMessages, resolvedMounted, newOrUpdated }
+              ↓
+         runtimeStore.setMessages(result.allMessages)
+                    + setMountedState(resolvedMounted, elementById)
               ↓
          subscribe 通知
               ↓
@@ -396,6 +441,11 @@ interface DomAdapter {
   extractConversationId(): string | null;
   findScrollContainer(): HTMLElement | null;
   isElementInViewport(el: HTMLElement): boolean;
+
+  // 仅从白名单 data-* 属性提取 observedDomMessageId
+  // 白名单：data-id, data-message-id（需经实际验证后确定）
+  // 不使用 HTMLElement.id（不可靠且可能与页面其他元素冲突）
+  // 返回 null 表示无可用标识
   extractObservedId(el: HTMLElement): string | null;
 }
 ```
@@ -490,6 +540,13 @@ interface MessageScanner {
 - **长 assistant 回答场景**：视口内无 user message 时，取视口上方最近的一条（top < 0 中 top 最大的）
 
 **滚动采集**：scrollDriver.onScroll → throttle 300ms → 更新可见消息的 scroll metadata
+
+**scanner.start 与 cache load 顺序**：
+- `scanner.start()` 可在 cache load 完成之前调用——它只启动 MutationObserver 监听
+- `rescan()` 必须在 conversationId 和 currentCache 就绪后才能执行有效匹配
+- 实现：rescan() 开头检查 `runtimeStore.getSnapshot().conversationId !== null`，未就绪时安全跳过（返回空 ScanResult）
+- MutationObserver 触发的 rescan 会在 cache 就绪后自然生效（debounce 500ms 期间 cache 通常已加载）
+- 首次 rescan 由 urlWatcher callback 中 cache load 完成后显式调用
 
 ### urlWatcher — SPA 路由监听
 
@@ -775,8 +832,9 @@ export default defineContentScript({
     // → 触发上面的 callback → 加载当前会话缓存
     // → await 是在 callback 内部，不阻塞后续
 
-    // 6. scanner.start() 在 cache load 完成后由 callback 触发首次 rescan
-    //    此处启动 MutationObserver
+    // 6. scanner.start()：启动 MutationObserver
+    //    observer 可先启动，但 rescan() 在 conversationId/currentCache 未就绪时安全跳过
+    //    首次有效 rescan 由 urlWatcher callback 中 cache load 完成后触发
     scanner.start();
 
     // 7. 用户手动滚动取消跳转
@@ -792,9 +850,9 @@ export default defineContentScript({
 
 **初始化顺序要点**：
 1. 先注册 onConversationChange callback
-2. 再 start urlWatcher（start 立即 emit 当前 ID → 触发 cache load）
-3. cache load 完成后 scanner.start() 的 MutationObserver 已就绪
-4. scanner.start() 本身只启动 MutationObserver，不依赖 cache 已加载
+2. 再 start urlWatcher（start 立即 emit 当前 ID → 触发 cache load → currentCache 就绪）
+3. scanner.start() 可在 cache load 之前启动（只启动 observer），rescan 未就绪时安全跳过
+4. urlWatcher callback 中 cache load 完成后显式 rescan → 首次有效扫描
 
 ## 9. 错误处理
 
@@ -836,7 +894,7 @@ export default defineContentScript({
 - domAdapter — 仅 data-message-author-role
 - scrollDriver（含 scrollToRatio、getClientHeight、scrollElementIntoView）
 - urlWatcher（start 立即 emit、getCurrentId）
-- cacheStore（resolveScannedCandidates + LRU + temp migration）
+- cacheStore（currentCache 内存模型 + async resolveScannedCandidates → ResolveResult + LRU + temp migration）
 - runtimeStore（mountedIds、activeMessageId、jumpState、elementById）
 - messageScanner（rescan → ScanResult，候选交给 cacheStore 解析身份）
 - Shadow DOM 侧栏（WXT createShadowRootUi，onMount 返回 cleanup）
