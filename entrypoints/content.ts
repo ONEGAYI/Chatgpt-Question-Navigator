@@ -38,6 +38,14 @@ export default defineContentScript({
     urlWatcher.start();
     scanner.start();
 
+    // 用户滚动取消进行中的跳转
+    scrollDriver.onUserScroll(() => jumpController.cancelCurrent());
+
+    // Esc 键取消进行中的跳转
+    window.addEventListener('keydown', (event: KeyboardEvent) => {
+      if (event.key === 'Escape') jumpController.cancelCurrent();
+    });
+
     window.addEventListener('beforeunload', () => {
       void cacheStore.flush();
       scanner.stop();
