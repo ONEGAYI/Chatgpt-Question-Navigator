@@ -118,7 +118,7 @@ export class CacheStore {
       for (const candidate of segment.candidates) {
         const matched = this.matchCandidate(conversationId, candidate, existing, usedExisting);
         const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
-        const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex);
+        const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex, candidate.turnKey);
 
         const next: CachedUserMessage = {
           conversationId,
@@ -297,6 +297,12 @@ export class CacheStore {
     existing: CachedUserMessage[],
     usedExisting: Set<string>
   ): CachedUserMessage | null {
+    if (candidate.turnKey) {
+      const turnId = `${conversationId}::turn::${candidate.turnKey}`;
+      const matched = existing.find((message) => message.localMessageId === turnId && !usedExisting.has(message.localMessageId));
+      if (matched) return matched;
+    }
+
     if (candidate.observedDomMessageId) {
       const domId = `${conversationId}::dom::${candidate.observedDomMessageId}`;
       const exact = existing.find((message) => message.localMessageId === domId && !usedExisting.has(message.localMessageId));
@@ -329,7 +335,8 @@ export class CacheStore {
     return indexes.length === 0 ? 0 : Math.max(...indexes) + 1;
   }
 
-  private createLocalMessageId(conversationId: string, observedDomMessageId: string | null, textHash: string, occurrenceIndex: number): string {
+  private createLocalMessageId(conversationId: string, observedDomMessageId: string | null, textHash: string, occurrenceIndex: number, turnKey?: string | null): string {
+    if (turnKey) return `${conversationId}::turn::${turnKey}`;
     if (observedDomMessageId) return `${conversationId}::dom::${observedDomMessageId}`;
     return `${conversationId}::hash::${textHash}::${occurrenceIndex}`;
   }
