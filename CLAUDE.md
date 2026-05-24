@@ -55,7 +55,7 @@ Popup → Content Script 通信协议：
 | `RuntimeStore` | 内存中的响应式状态。通过 subscribe/emit 模式驱动 Preact UI 更新 |
 | `UrlWatcher` | 监听 SPA 路由变化（patch history API + popstate + 轮询），提取 conversationId 或分配临时 ID |
 | `ScrollDriver` | 滚动容器抽象，区分用户滚动与程序滚动 |
-| `JumpController` | 跳转逻辑：对已挂载消息直接 scrollIntoView + 临时高亮；未挂载消息返回失败（Phase 4 待实现渐进式跳转） |
+| `JumpController` | 跳转逻辑：已挂载消息直接跳转 + 高亮；未挂载消息渐进式跳转（scrollRatio 粗定位 + messages index 自适应步进，MAX_ATTEMPTS=30）；JumpToken 可取消 |
 
 ### UI 层 (`src/ui/`)
 
@@ -65,6 +65,7 @@ Popup → Content Script 通信协议：
 - `Sidebar.tsx` — 主侧栏，从 RuntimeStore 订阅状态，管理搜索和折叠
 - `MessageItem.tsx` — 单条消息项，搜索高亮和 hover 预览
 - `SearchBox.tsx` — 搜索输入（300ms 防抖）
+- `JumpToast.tsx` — 跳转进度和失败状态 Toast，底部固定显示
 
 ### 共享层 (`src/shared/`)
 
@@ -95,7 +96,9 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 - **CacheStore 的 currentCache 是单会话热缓存**：`ensureCurrentCache` 在 conversationId 不匹配时会重建，这意味着跨会话操作前需要先 `loadConversation`
 - **防抖/节流常量**：定义在各自模块顶部（`MUTATION_DEBOUNCE_MS=500`, `SCROLL_THROTTLE_MS=300`, `SAVE_DEBOUNCE_MS=2000`）
 - **消息顺序使用持久 orderedIds**：`absoluteTop` / `orderKey` 只保留为局部扫描和旧字段兼容信息，不作为全局排序依据。新消息通过 anchor-splice 插入 `orderedIds`，已有消息的全局相对顺序默认不改
-- **Phase 4 未实现**：渐进式远距离跳转、跳转取消、失败 toast 仍在路线图中。当前点击未挂载消息会返回失败状态
+- **渐进式跳转**：点击未挂载（cached-only）消息触发渐进式跳转循环。attempt 0 用 scrollRatio 种子定位，后续用 decideDirection + scrollOneChunk 自适应步进（viewport × 衰减系数），每步等待 500ms DOM 沉淀。最大 30 次尝试后显示失败 toast
+- **跳转取消**：用户手动滚动（wheel/touch/keyboard/pointerdown）、Esc 键、或点击新目标时自动取消当前跳转。通过 JumpToken 实现可取消异步操作
+- **orderKey 稳定性**：cacheStore 使用 orderedIds + anchor-splice 合并模型（`orderList.ts`），匹配消息保持原 orderKey，新消息在锚点间插入。排序由 orderedIds 控制，不依赖 orderKey 数值排序
 - **构建产物**：`.output/` 目录，`chrome-mv3` 为生产构建，`chrome-mv3-dev` 为开发构建
 
 ## 文件树
