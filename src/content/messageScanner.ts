@@ -41,9 +41,17 @@ export class MessageScanner {
   }
 
   async rescan(): Promise<ScanResult> {
-    const conversationId = this.runtimeStore.getSnapshot().conversationId;
+    const domConversationId = this.domAdapter.extractConversationId();
+    const storedConversationId = this.runtimeStore.getSnapshot().conversationId;
+    const conversationId = domConversationId ?? storedConversationId;
     if (!conversationId) {
       return { mountedIds: new Set(), activeMessageId: null, visibleRange: null, newOrUpdated: [] };
+    }
+    if (domConversationId && domConversationId !== storedConversationId) {
+      await this.cacheStore.flush();
+      this.runtimeStore.setConversationId(domConversationId);
+      const cache = await this.cacheStore.loadConversation(domConversationId);
+      this.runtimeStore.setMessages(cache?.messages ?? []);
     }
 
     const elements = this.domAdapter.findUserMessages();
