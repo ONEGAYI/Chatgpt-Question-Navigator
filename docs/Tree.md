@@ -14,7 +14,7 @@ chatgpt-question-navigator/
 │   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
 │   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
-│   │   ├── scrollDriver.ts         # 滚动基础设施：多源 root 检测 + 操作结果 + viewport + 方向捕获 + 诊断
+│   │   ├── scrollDriver.ts         # 滚动基础设施：多源 root 检测 + 评分验证 + 操作结果 + viewport + 方向捕获 + 诊断
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
 │   ├── popup/
 │   │   ├── PopupApp.tsx            # Popup 主组件：存储用量仪表、对话列表、缓存操作按钮
