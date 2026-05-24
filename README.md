@@ -1,0 +1,88 @@
+# ChatGPT Question Navigator
+
+本项目是一个本地优先、隐私友好的 Chrome/Edge Manifest V3 扩展，用于在 ChatGPT 长对话页面右侧显示用户问题导航侧栏。
+
+## 已实现范围
+
+- 仅在 `https://chatgpt.com/*` 和 `https://chat.openai.com/*` 启用。
+- 使用 WXT content script 和 Shadow DOM 注入右侧侧栏。
+- 扫描当前 DOM 中 `data-message-author-role="user"` 的用户消息。
+- 将已见过的用户消息缓存到 `chrome.storage.local`。
+- SPA URL 切换时加载对应会话缓存。
+- 侧栏展示 Q1、Q2 等问题摘要、mounted/cached 状态和 indexed 数量。
+- 当前阅读附近的用户消息在侧栏高亮。
+- 点击当前 DOM 中存在的问题可平滑跳转并临时高亮目标。
+- 支持搜索已缓存问题和 hover 查看完整预览。
+
+## 安装依赖
+
+```bash
+pnpm install
+```
+
+如果没有 pnpm：
+
+```bash
+npm install
+```
+
+## 开发运行
+
+```bash
+pnpm dev
+```
+
+或：
+
+```bash
+npm run dev
+```
+
+## 类型检查
+
+```bash
+pnpm compile
+```
+
+## 构建扩展
+
+```bash
+pnpm build
+```
+
+构建产物位于 `.output/chrome-mv3`。
+
+## Chrome 加载方式
+
+1. 打开 `chrome://extensions/`。
+2. 开启右上角「开发者模式」。
+3. 点击「加载已解压的扩展程序」。
+4. 选择 `.output/chrome-mv3`。
+5. 打开 ChatGPT 页面验证右侧导航侧栏。
+
+## Edge 加载方式
+
+1. 打开 `edge://extensions/`。
+2. 开启左侧「开发人员模式」。
+3. 点击「加载解压缩的扩展」。
+4. 选择 `.output/chrome-mv3`。
+5. 打开 ChatGPT 页面验证右侧导航侧栏。
+
+## 隐私说明
+
+扩展不调用 ChatGPT 内部 API，不 monkey patch fetch/XHR，不请求 `<all_urls>` 权限，不添加 analytics，也不会把聊天内容上传到任何服务器。已采集的问题摘要和搜索文本只保存在浏览器本地的 `chrome.storage.local`。
+
+## 已知限制
+
+- 扩展无法读取从未在 DOM 中出现过的历史消息。
+- 第一次打开超长对话时，远处问题需要用户滚动经过后才会被缓存。
+- ChatGPT 页面结构变化可能导致 DOM 识别失效。
+- Phase 1-3 只支持当前 DOM 中已挂载消息的直接跳转。
+- cached-only 消息的渐进式远距离跳转将在 Phase 4 实现。
+
+## 后续路线
+
+- Phase 4：渐进式跳转、跳转取消、失败 toast。
+- 验证并启用 experimental DOM 后备选择器。
+- 导出/导入缓存。
+- 自定义快捷键。
