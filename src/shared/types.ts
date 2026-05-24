@@ -18,6 +18,7 @@ export interface ConversationCache {
   updatedAt: number;
   messages: CachedUserMessage[];
   orderedIds: string[];
+  orderMode?: 'incremental' | 'canonical';
 }
 
 export interface StorageMeta {
@@ -60,6 +61,7 @@ export interface RuntimeState {
   mountedIds: Set<string>;
   activeMessageId: string | null;
   jumpState: JumpState;
+  autoCollectProgress: AutoCollectProgress | null;
 }
 
 export interface VisibleRange {
@@ -72,4 +74,29 @@ export interface ScanResult {
   activeMessageId: string | null;
   visibleRange: VisibleRange | null;
   newOrUpdated: CachedUserMessage[];
+}
+
+// --- AutoCollector types ---
+
+export type AutoCollectPhase =
+  | 'idle'
+  | 'preparing'
+  | 'collecting'
+  | 'finalizing'
+  | 'completed'
+  | 'cancelled'
+  | 'failed';
+
+export interface AutoCollectProgress {
+  phase: AutoCollectPhase;
+  conversationId: string;
+  foundCount: number;
+  round: number;
+  errorMessage?: string;
+}
+
+export interface AutoCollectIntent {
+  conversationId: string;
+  url: string;
+  requestedAt: number;
 }
