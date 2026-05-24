@@ -21,10 +21,21 @@ const STATUS_TEXT: Record<AutoCollectPhase, string> = {
   failed: '',
 };
 
-function getStatusText(phase: AutoCollectPhase | null | undefined, progress: { foundCount: number; errorMessage?: string } | null, messageCount: number): string {
+function getStatusText(phase: AutoCollectPhase | null | undefined, progress: { foundCount: number; hydratedCount?: number; totalTurns?: number; unhydratedCount?: number; errorMessage?: string } | null, messageCount: number): string {
   if (!phase || phase === 'idle') return `Indexed ${messageCount} questions locally`;
-  if (phase === 'collecting') return `Collecting... ${progress?.foundCount ?? 0} found`;
-  if (phase === 'completed') return `Collected ${messageCount} questions`;
+  if (phase === 'collecting') {
+    const hydrated = progress?.hydratedCount ?? 0;
+    const total = progress?.totalTurns ?? 0;
+    const found = progress?.foundCount ?? 0;
+    return `Collecting... ${found} questions (${hydrated}/${total} turns)`;
+  }
+  if (phase === 'completed') {
+    const unhydrated = progress?.unhydratedCount ?? 0;
+    if (unhydrated > 0) {
+      return `Collected ${messageCount} questions, ${unhydrated} turns unhydrated`;
+    }
+    return `Collected ${messageCount} questions`;
+  }
   if (phase === 'failed') return `Collection failed: ${progress?.errorMessage ?? 'unknown'}`;
   return STATUS_TEXT[phase];
 }
