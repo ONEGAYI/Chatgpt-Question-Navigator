@@ -7,7 +7,7 @@
   --cqn-border: #424242;
   --cqn-sidebar-width: 280px;
   --cqn-sidebar-collapsed: 40px;
-  --cqn-mini-scale: 1;
+  --cqn-mini-scale: 1.5;
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -185,10 +185,12 @@
 
 .cqn-mini-mark {
   display: block;
+  box-sizing: content-box;
   width: calc(14px * var(--cqn-mini-scale));
   height: calc(3px * var(--cqn-mini-scale));
   border-radius: calc(1.5px * var(--cqn-mini-scale));
   background: var(--cqn-accent);
+  background-clip: content-box;
   cursor: pointer;
   border: 0;
   padding: calc(5px * var(--cqn-mini-scale)) calc(2px * var(--cqn-mini-scale));
