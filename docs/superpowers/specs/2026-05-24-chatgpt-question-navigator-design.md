@@ -1,7 +1,7 @@
 # ChatGPT Question Navigator — 完整设计文档
 
 > 日期：2026-05-24
-> 状态：修订版 v3
+> 状态：修订版 v4
 
 ## 1. 项目概述
 
@@ -47,9 +47,10 @@ chatgpt-question-navigator/
 │   ├── content/
 │   │   ├── domAdapter.ts      # DOM 选择器集中管理 + 消息节点识别
 │   │   ├── scrollDriver.ts    # 滚动容器抽象层（window / document.scrollingElement / 内部容器）
-│   │   ├── messageScanner.ts  # DOM 扫描 + MutationObserver + 滚动采集 + mounted element map
+│   │   ├── messageScanner.ts  # DOM 扫描 + MutationObserver + 滚动采集
 │   │   ├── jumpController.ts  # 直接跳转 + 渐进式跳转 + cancellation token
 │   │   ├── cacheStore.ts      # chrome.storage.local 读写 + 缓存合并逻辑 + LRU 容量管理
+│   │   ├── runtimeStore.ts    # 运行期状态：mountedIds、activeMessageId、jumpState
 │   │   └── urlWatcher.ts      # URL 变化监听（SPA 路由）+ temp cache migration
 │   │
 │   ├── ui/
@@ -73,12 +74,13 @@ chatgpt-question-navigator/
 ```
 content.ts (入口)
   ├── DomAdapter (无依赖，纯 DOM 操作)
+  ├── CacheStore (无依赖，仅持久化数据)
   ├── ScrollDriver (依赖 DomAdapter.findScrollContainer)
-  ├── CacheStore (无依赖，存储操作)
   ├── UrlWatcher (依赖 DomAdapter 提取 conversationId)
-  ├── MessageScanner (依赖 DomAdapter + CacheStore + ScrollDriver)
-  ├── JumpController (依赖 MessageScanner + CacheStore + ScrollDriver)
-  └── ShadowRootApp (依赖 CacheStore + JumpController)
+  ├── RuntimeStore (依赖 CacheStore 获取 messages 列表)
+  ├── MessageScanner (依赖 DomAdapter + CacheStore + ScrollDriver + RuntimeStore)
+  ├── JumpController (依赖 MessageScanner + CacheStore + ScrollDriver + RuntimeStore)
+  └── ShadowRootApp (依赖 RuntimeStore + JumpController)
 ```
 
 ## 3. WXT 配置
@@ -103,6 +105,31 @@ export default defineConfig({
 
 ## 4. 数据层
 
+### 状态职责划分
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    状态归属三分类                             │
+│                                                              │
+│  cacheStore（持久化）        runtimeStore（内存，不持久化）    │
+│  ├─ ConversationCache       ├─ mountedIds: Set<string>      │
+│  ├─ StorageMeta             ├─ elementById: Map<string, El> │
+│  ├─ messages[]              ├─ activeMessageId              │
+│  └─ occurrenceIndex 分配    ├─ jumpState                    │
+│                             └─ conversationId               │
+│                                                              │
+│                     Sidebar 本地状态（组件内）                 │
+│                     ├─ searchQuery                          │
+│                     ├─ collapsed                            │
+│                     └─ searchResults                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**设计原则**：
+- cacheStore 只管理持久化数据（conversation cache + storage meta），不持有运行期 UI 状态
+- runtimeStore 持有所有内存态运行数据（mountedIds、activeMessageId、jumpState、elementById），提供 subscribe 通知
+- Sidebar 组件通过 runtimeStore.subscribe() 获取数据，本地管理 UI 交互状态（searchQuery、collapsed）
+
 ### 核心持久化类型
 
 ```typescript
@@ -115,64 +142,77 @@ interface CachedUserMessage {
   textForSearch: string;        // 截断到 2000 chars，用于搜索匹配
   preview: string;              // 前 80-150 字，用于侧栏列表显示
   textHash: string;             // SHA-256 前 8 位
-  occurrenceIndex: number;      // 同一 conversationId + textHash 下由 cacheStore 稳定分配的序号
+  occurrenceIndex: number;      // 同一 conversationId + textHash 下稳定分配的序号
   firstSeenAt: number;          // timestamp
   lastSeenAt: number;
   lastKnownScrollTop: number;
   lastKnownScrollRatio: number;
   orderKey: number;             // 可变排序字段，当前会话中的大致位置
-  // 注意：fullText 不在默认存储中，后续可选扩展
 }
 
-// localMessageId 生成规则（不包含 orderKey）：
+// === localMessageId 生成规则 ===
 //
-// 规则 1：如果 DOM 节点存在 observedDomMessageId（data-id / id 等标识）
+// 规则 1：有 observedDomMessageId
 //   localMessageId = `${conversationId}::dom::${observedDomMessageId}`
 //
-// 规则 2：无 observedDomMessageId 时
+// 规则 2：无 observedDomMessageId，通过 cacheStore.resolveScannedCandidates() 匹配后
 //   localMessageId = `${conversationId}::hash::${textHash}::${occurrenceIndex}`
 //
-// occurrenceIndex 的稳定分配（不随 rescan 重算）：
-//   - 由 cacheStore 在 mergeMessages() 时负责分配和持久化
-//   - 对于同一 conversationId + textHash，cacheStore 维护一个计数器
-//   - 新消息如果无 observedDomMessageId，分配下一个 occurrenceIndex
-//   - 已有 localMessageId 的消息保持原 occurrenceIndex 不变
-//   - 这样即使 DOM 挂载顺序变化，同一消息始终获得相同的 localMessageId
+// occurrenceIndex 由 cacheStore.resolveScannedCandidates() 稳定分配（见 §5）
 
 interface ConversationCache {
-  conversationId: string;      // 真实 ID 或 "temp:{timestamp}"
+  conversationId: string;
   updatedAt: number;
   messages: CachedUserMessage[];
 }
 
-// === Storage 容量管理元数据 ===
-
 interface StorageMeta {
-  conversationIds: string[];    // 按 updatedAt 降序排列（最近使用的在前）
-  totalBytes: number;           // 当前已用字节数
-  lastCleanupAt: number;        // 上次清理时间
+  conversationIds: string[];    // 按 updatedAt 降序（LRU 顺序）
+  totalBytes: number;
+  lastCleanupAt: number;
 }
 ```
 
-### 运行期状态类型（不持久化）
+### 扫描候选类型
 
 ```typescript
-// === 仅存在于内存的运行期状态 ===
+// messageScanner 从 DOM 提取的原始候选数据，交由 cacheStore 解析身份
+interface ScannedUserMessageCandidate {
+  observedDomMessageId: string | null;  // DOM 上的标识（data-id 等）
+  text: string;
+  textHash: string;
+  preview: string;
+  textForSearch: string;                 // 截断后
+  scrollRatio: number;                   // 当前 scrollRatio
+  scrollTop: number;                     // 当前 scrollTop
+  domOrderIndex: number;                 // 在当前 DOM 中的顺序（0-based）
+  element: HTMLElement;                  // DOM 引用（运行期使用，不持久化）
+}
+```
 
+### 运行期状态类型
+
+```typescript
+// runtimeStore 持有的完整运行期状态
 interface RuntimeState {
-  // 当前 DOM 中挂载的用户消息 → 其 HTMLElement 引用
-  // 由 messageScanner 维护，不写入 storage
-  elementById: Map<string, HTMLElement>;    // localMessageId → HTMLElement
+  conversationId: string | null;
+  messages: CachedUserMessage[];       // 从 cacheStore 加载的当前会话消息
 
-  // 当前挂载的 localMessageId 集合（方便快速查询）
+  // DOM 挂载状态（由 messageScanner 更新）
+  elementById: Map<string, HTMLElement>;
   mountedIds: Set<string>;
 
-  // 当前活跃的用户消息 ID
-  // 规则：视口内最靠近顶部的 user message
-  // 如果视口内无 user message（长 assistant 回答场景），
-  // 则取视口顶部之前最近的一条 user message
+  // 可见性追踪（由 IntersectionObserver 更新）
   activeMessageId: string | null;
+
+  // 跳转状态（由 jumpController 更新）
+  jumpState: JumpState;
 }
+
+type JumpState =
+  | { status: 'idle' }
+  | { status: 'jumping'; targetId: string; attempt: number }
+  | { status: 'failed'; targetId: string; reason: string };
 
 // messageScanner.rescan() 返回值
 interface ScanResult {
@@ -181,27 +221,8 @@ interface ScanResult {
   visibleRange: {
     minOrderKey: number;
     maxOrderKey: number;
-  } | null;  // null 表示当前视口及视口前均无已识别用户消息
-  newOrUpdated: CachedUserMessage[];  // 本次扫描发现的新消息或有更新的消息
-}
-```
-
-### UI 状态类型
-
-```typescript
-type JumpState =
-  | { status: 'idle' }
-  | { status: 'jumping'; targetId: string; attempt: number }
-  | { status: 'failed'; targetId: string; reason: string };
-
-interface SidebarState {
-  conversationId: string | null;
-  messages: CachedUserMessage[];
-  mountedIds: Set<string>;         // 从 RuntimeState 同步
-  activeMessageId: string | null;  // 从 RuntimeState 同步
-  jumpState: JumpState;
-  searchQuery: string;
-  collapsed: boolean;
+  } | null;
+  newOrUpdated: CachedUserMessage[];
 }
 ```
 
@@ -212,71 +233,141 @@ interface CacheStore {
   // 存储操作
   loadConversation(id: string): Promise<ConversationCache | null>;
   saveConversation(cache: ConversationCache): Promise<void>;
-  mergeMessages(id: string, newMessages: CachedUserMessage[]): Promise<void>;
   clearConversation(id: string): Promise<void>;
   clearAll(): Promise<void>;
 
-  // temp cache migration：真实 conversationId 出现后迁移
+  // 核心：将扫描候选解析为确定的 CachedUserMessage[]
+  // 综合 observedDomMessageId、textHash、scrollRatio、orderKey、DOM 顺序匹配已有缓存
+  // 匹配到的保持原 localMessageId；匹配不到的分配新 occurrenceIndex
+  resolveScannedCandidates(
+    conversationId: string,
+    candidates: Omit<ScannedUserMessageCandidate, 'element'>[]
+  ): CachedUserMessage[];
+
+  // temp cache migration
   migrateTempCache(tempId: string, realId: string): Promise<void>;
 
-  // 响应式
-  subscribe(listener: () => void): () => void;
-  getSnapshot(): SidebarState;
+  // 容量管理
+  getBytesInUse(): Promise<number>;
+  performLruCleanupIfNeeded(): Promise<void>;
 }
 ```
 
+### resolveScannedCandidates 匹配算法
+
+这是避免重复消息误合并的关键。当 DOM 节点无 observedDomMessageId 时，仅靠 textHash 不足以区分相同文本的不同消息。
+
+**匹配流程**：
+
+```
+输入：candidates[]（当前 DOM 扫描结果）
+已缓存：existingMessages[]（cacheStore 中的消息）
+
+Step 1: 精确匹配 — observedDomMessageId
+  candidate.observedDomMessageId 存在 → 在 existing 中找 localMessageId 包含该 ID 的
+  匹配到 → 保持原 localMessageId，更新 scroll 信息
+
+Step 2: 模糊匹配 — textHash + 综合线索
+  无 observedDomMessageId 的 candidate，按 textHash 分组
+  对每个 textHash 组：
+    获取 existing 中同 textHash 的所有未匹配消息
+    按 scrollRatio 接近度排序候选匹配
+    综合考虑：
+      - scrollRatio 差距（权重最高）
+      - orderKey 与 domOrderIndex 的相对一致性
+      - DOM 顺序与缓存顺序的对应关系
+    贪心匹配：差距最小的先配对
+    匹配到 → 保持原 localMessageId
+    未匹配到 → 分配新 occurrenceIndex，生成新 localMessageId
+
+Step 3: 孤儿检测
+  existing 中未匹配到的消息 → 保持原样（可能已不在 DOM 中，不应删除）
+```
+
+**核心保证**：
+- 两条相同文本消息不会被误合并（scrollRatio + DOM 顺序综合判断）
+- 不会在每次 rescan 时生成新 ID（已匹配到的保持原 ID）
+- 消息临时从 DOM 消失后重新出现时，能通过 scrollRatio 等线索重新关联
+
 ### cacheStore 职责
 
-1. **读写 chrome.storage.local** — 按 `conv:{conversationId}` 为 key 存储 `ConversationCache`；额外维护 `meta` key 存储 `StorageMeta`
-2. **缓存合并** — 相同 `localMessageId` 更新 lastSeenAt/scroll 信息，新消息追加
-3. **occurrenceIndex 稳定分配** — mergeMessages() 时，对同一 conversationId + textHash 的新消息分配递增的 occurrenceIndex，不随 rescan 重算。避免相同 textHash 的不同消息被误合并
-4. **变更通知** — subscribe 机制，Preact 组件通过此机制响应变化
-5. **批量保存** — debounce 2s 避免频繁写入
-6. **存储容量控制**：
-   - 单条消息 textForSearch 截断到 2000 chars，preview 单独保存（80-150 chars），不存全文
-   - 每次 saveConversation 后调用 `chrome.storage.local.getBytesInUse()` 检查已用量
-   - 当总用量超过阈值（如 8MB，默认 QUOTA 10MB 留 2MB 余量）时，执行 LRU 清理
-   - LRU 策略：按 `StorageMeta.conversationIds` 中 updatedAt 最旧的会话开始删除，直到总量低于阈值的 80%
-   - 清理后更新 StorageMeta
-7. **temp cache migration** — 新建对话时用 `"temp:{timestamp}"` 作为临时 ID，当 URL 中出现真实 conversationId 后，将临时缓存迁移到真实 ID
+1. **读写 chrome.storage.local** — 按 `conv:{conversationId}` 为 key 存储；维护 `meta` key
+2. **resolveScannedCandidates** — 稳定身份解析（上述算法）
+3. **批量保存** — debounce 2s
+4. **存储容量控制**：
+   - textForSearch 截断到 2000 chars，preview 80-150 chars
+   - 保存后 getBytesInUse 检查，超过 8MB 阈值执行 LRU 清理
+   - LRU：按 StorageMeta.conversationIds 中 updatedAt 最旧的删除，直到低于 80%
+5. **temp cache migration** — 新建对话用 `"temp:{timestamp}"`，真实 ID 出现后迁移
 
 ### temp cache migration 流程
 
 ```
 用户新建对话 → URL 为 /（无 ID）→ 创建 temp:{timestamp} 缓存
     ↓
-用户发送消息 → DOM 扫描采集 → 写入 temp 缓存
+用户发送消息 → DOM 扫描 → 写入 temp 缓存
     ↓
 URL 变为 /c/{realId} → urlWatcher 检测到变化
     ↓
 cacheStore.migrateTempCache(tempId, realId)
-  - 读取 temp 缓存
   - 更新所有消息的 conversationId 和 localMessageId
   - 以 realId 写入新缓存
   - 删除 temp 缓存
     ↓
-messageScanner.rescan() → 用新 ID 重新映射
+runtimeStore.updateConversationId(realId)
+messageScanner.rescan()
+```
+
+### runtimeStore 接口
+
+```typescript
+interface RuntimeStore {
+  // 读取
+  getSnapshot(): RuntimeState;
+
+  // 更新 conversationId（URL 变化时）
+  setConversationId(id: string | null): void;
+
+  // 更新消息列表（cacheStore 加载或 resolve 后）
+  setMessages(messages: CachedUserMessage[]): void;
+
+  // 更新运行期挂载状态（由 messageScanner 调用）
+  setMountedState(mountedIds: Set<string>, elementById: Map<string, HTMLElement>): void;
+  setActiveMessageId(id: string | null): void;
+
+  // 更新跳转状态（由 jumpController 调用）
+  setJumpState(state: JumpState): void;
+
+  // 响应式
+  subscribe(listener: () => void): () => void;
+}
 ```
 
 ### 数据流
 
 ```
-DOM 扫描 → messageScanner.rescan() → ScanResult
+DOM 扫描 → messageScanner.rescan()
               ↓
-         cacheStore.mergeMessages(newOrUpdated)
+         生成 ScannedUserMessageCandidate[]
               ↓
-         subscribe 通知 + 更新 mountedIds/activeMessageId
+         cacheStore.resolveScannedCandidates(candidates) → CachedUserMessage[]
+              ↓
+         runtimeStore.setMessages(resolved) + setMountedState(mountedIds, elementById)
+              ↓
+         subscribe 通知
               ↓
          Preact Sidebar 重渲染
 ```
 
 ```
-URL 变化 → urlWatcher
-             ↓
-         如果是 temp → real 的迁移 → cacheStore.migrateTempCache()
-             ↓
+URL 变化 → urlWatcher → callback
+              ↓
+         cacheStore.migrateTempCache()（如需要）
+              ↓
          cacheStore.loadConversation(newId)
-             ↓
+              ↓
+         runtimeStore.setConversationId(newId) + setMessages(messages)
+              ↓
          messageScanner.rescan()
 ```
 
@@ -284,14 +375,14 @@ URL 变化 → urlWatcher
 
 ### domAdapter — 选择器集中管理
 
-domAdapter 只负责 DOM 查询和文本提取，不负责消息 ID 查找（该能力由 messageScanner 的 element map 提供）。
+domAdapter 只负责 DOM 查询和文本提取。
 
 ```typescript
 const SELECTORS = {
   // 主选择器（Phase 1-2 唯一启用）
   userMessage: '[data-message-author-role="user"]',
 
-  // 后备选择器（标记 experimental，Phase 1-2 不启用，后续经验证后按需开启）
+  // 后备选择器（标记 experimental，Phase 1-2 不启用）
   // userMessageExperimental: '.text-base .whitespace-pre-wrap',
 
   messageText: '.whitespace-pre-wrap, .message-body, [data-message-author-role] > div',
@@ -300,51 +391,44 @@ const SELECTORS = {
 } as const;
 
 interface DomAdapter {
-  // 使用 SELECTORS.userMessage 扫描
   findUserMessages(): HTMLElement[];
   extractText(el: HTMLElement): string;
-  extractConversationId(): string | null;  // 从 URL /c/{id}
+  extractConversationId(): string | null;
   findScrollContainer(): HTMLElement | null;
   isElementInViewport(el: HTMLElement): boolean;
-
-  // 从 DOM 元素提取 observedDomMessageId（如 data-id 属性等）
-  // 返回 null 表示 DOM 元素无可用标识
   extractObservedId(el: HTMLElement): string | null;
 }
 ```
 
-**选择器策略**：
-- Phase 1-2：仅使用 `data-message-author-role="user"`，不启用后备选择器
-- 后续：如需后备选择器，需经过实际验证后标记启用，不盲目启用
-- 全部失败时静默降级，不报错不崩溃
-
 ### scrollDriver — 滚动容器抽象层
 
-统一封装滚动操作，屏蔽 ChatGPT 可能使用的不同滚动容器。
+统一封装所有滚动操作。直接跳转和渐进式跳转最终定位都通过 ScrollDriver，jumpController 不直接调用 el.scrollIntoView。
 
 ```typescript
 interface ScrollDriver {
-  // 初始化：检测并绑定实际滚动容器
   init(): void;
 
   // 读取
   getScrollTop(): number;
   getScrollHeight(): number;
-  getClientHeight(): number;     // 可视区域高度
-  getScrollRatio(): number;      // scrollTop / (scrollHeight - clientHeight)，clamp 到 [0, 1]
+  getClientHeight(): number;
+  getScrollRatio(): number;      // clamp(scrollTop / (scrollHeight - clientHeight), 0, 1)
   getContainer(): HTMLElement | Window;
 
   // 程序化滚动
   scrollTo(options: ScrollToOptions): void;
   scrollBy(deltaY: number): void;
   scrollToRatio(ratio: number, behavior?: ScrollBehavior): void;
-  // scrollToRatio 实现：
-  //   const top = ratio * (this.getScrollHeight() - this.getClientHeight());
-  //   this.scrollTo({ top, behavior: behavior ?? 'auto' });
+  // 实现：const top = ratio * (getScrollHeight() - getClientHeight());
+  //       scrollTo({ top, behavior: behavior ?? 'auto' });
+
+  // 元素滚动定位（替代直接 el.scrollIntoView）
+  scrollElementIntoView(el: HTMLElement, options?: ScrollIntoViewOptions): void;
+  // 内部处理：确保在正确的滚动容器上操作，而非依赖 window.scrollIntoView
 
   // 监听
-  onScroll(callback: () => void): void;          // 所有滚动（程序化 + 用户）
-  onUserScroll(callback: () => void): () => void; // 仅用户手动滚动
+  onScroll(callback: () => void): void;          // 所有滚动
+  onUserScroll(callback: () => void): () => void; // 仅用户手动
 
   // 清理
   destroy(): void;
@@ -359,20 +443,18 @@ interface ScrollDriver {
 **区分程序化滚动与用户手动滚动**：
 
 ```
-程序化滚动：scrollDriver 的 scrollTo / scrollBy / scrollToRatio 方法
-            设置内部标志 _isProgrammatic = true
-            在下一个 scroll 事件中检查并重置（requestAnimationFrame 后）
+程序化滚动：scrollTo / scrollBy / scrollToRatio / scrollElementIntoView
+            设置 _isProgrammatic = true
+            在 scroll 事件中检查并重置
             → 不触发 onUserScroll
 
-用户手动滚动检测（仅以下事件，不使用泛化 click）：
-  1. wheel 事件 — 鼠标滚轮
+用户手动滚动（不使用泛化 click）：
+  1. wheel — 鼠标滚轮
   2. touchstart / touchmove — 触摸屏
   3. keydown — PageUp/PageDown/Space/ArrowUp/ArrowDown/Home/End
-  4. pointerdown — 仅限 ChatGPT 主滚动区域内的拖拽
-     排除插件 Shadow DOM 内的 pointerdown（通过检查 event.composedPath()
-     或 event.target 是否在插件 host 元素内来过滤）
-  → 这些事件直接触发 onUserScroll 回调
-  → 用于取消当前跳转任务
+  4. pointerdown — 仅限 ChatGPT 主滚动区域
+     排除插件 Shadow DOM 内的 pointerdown（检查 composedPath 或 host 元素）
+  → 直接触发 onUserScroll
 ```
 
 ### messageScanner — 采集引擎
@@ -382,64 +464,47 @@ interface MessageScanner {
   start(): void;
   stop(): void;
 
-  // 核心：扫描 DOM 并返回结构化结果
+  // 核心：扫描 DOM，生成候选，交由 cacheStore 解析身份，返回结构化结果
   rescan(): Promise<ScanResult>;
 
   // 运行期 element map 查询
   getElementByLocalId(localId: string): HTMLElement | undefined;
   getMountedIds(): Set<string>;
 
-  // 更新单条消息的 scroll metadata
+  // 更新单条消息 scroll metadata
   updateScrollMeta(localId: string, scrollTop: number, scrollRatio: number): void;
 }
 ```
 
-**内部机制**：
-1. **MutationObserver** — 监听 DOM 变化，debounce 500ms 后触发 `rescan()`
-2. **滚动采集** — throttle 300ms，通过 scrollDriver.onScroll 触发，扫描可见区域附近的消息并更新 scroll metadata
-3. **IntersectionObserver** — 追踪当前视口内用户消息，更新 activeMessageId
-4. **去重** — 通过 localMessageId（observedDomMessageId 优先，textHash + occurrenceIndex 回退）判断
-
 **rescan() 流程**：
 1. `domAdapter.findUserMessages()` 获取所有用户消息节点
-2. 对每个节点：提取文本 → 计算 hash → 提取 observedDomMessageId
-3. 如果有 observedDomMessageId → 直接构造 localMessageId
-4. 如果无 observedDomMessageId → 使用 textHash 查询 cacheStore 获取稳定的 occurrenceIndex
-5. 更新 `elementById` Map 和 `mountedIds` Set
-6. 与 cacheStore 中已有数据比较，生成 `newOrUpdated` 列表
-7. 返回 `ScanResult`
-
-**localMessageId 生成规则**：
-```
-if (observedDomMessageId) {
-  localMessageId = `${conversationId}::dom::${observedDomMessageId}`;
-} else {
-  // occurrenceIndex 由 cacheStore 稳定分配，不随 rescan 重算
-  localMessageId = `${conversationId}::hash::${textHash}::${occurrenceIndex}`;
-}
-```
-
-**occurrenceIndex 稳定分配机制**：
-- messageScanner 在 rescan() 中发现新消息时，先尝试通过 observedDomMessageId 匹配已有缓存
-- 如果无法匹配且 textHash 在缓存中已存在，cacheStore.mergeMessages() 负责分配下一个 occurrenceIndex
-- cacheStore 内部维护 `Map<string, number>` 记录每个 `(conversationId, textHash)` 的下一个可用 index
-- 这确保了即使 DOM 挂载顺序变化或消息临时消失后重新出现，同一消息始终获得相同的 occurrenceIndex 和 localMessageId
+2. 对每个节点生成 `ScannedUserMessageCandidate`（含 observedDomMessageId、textHash、scrollRatio、domOrderIndex 等）
+3. 将候选列表传给 `cacheStore.resolveScannedCandidates(conversationId, candidates)`
+4. 得到确定身份的 `CachedUserMessage[]`
+5. 更新 runtimeStore 的 mountedIds、elementById
+6. 返回 `ScanResult`
 
 **IntersectionObserver 追踪 — activeMessageId 逻辑**：
 - 观察所有已知用户消息节点
-- 优先取视口内最靠近顶部的 user message 作为 activeMessageId
-- **长 assistant 回答场景**：如果视口内无 user message（只有 assistant 回答），则取视口顶部之上最近的一条 user message
-- 实现：记录每个被观察 user message 的 `boundingClientRect.top`，视口内取 top ≥ 0 且最小的；如果全部 top < 0，取 top 最大的（即最接近视口的上方消息）
+- 优先取视口内 top ≥ 0 且最小的 user message
+- **长 assistant 回答场景**：视口内无 user message 时，取视口上方最近的一条（top < 0 中 top 最大的）
 
-**滚动采集**：滚动时通过 scrollDriver 获取 scrollTop/scrollRatio，更新每个可见消息的 `lastKnownScrollTop` 和 `lastKnownScrollRatio`。
+**滚动采集**：scrollDriver.onScroll → throttle 300ms → 更新可见消息的 scroll metadata
 
 ### urlWatcher — SPA 路由监听
 
 ```typescript
 interface UrlWatcher {
-  start(): void;
-  stop(): void;
+  // 注册回调（必须在 start 之前注册）
   onConversationChange(callback: (id: string | null, previousId: string | null) => void): void;
+
+  // 启动监听，立即 emit 当前 conversationId
+  start(): void;
+
+  // 获取当前 conversationId（随时可调用）
+  getCurrentId(): string | null;
+
+  stop(): void;
 }
 ```
 
@@ -448,42 +513,38 @@ interface UrlWatcher {
 2. popstate 事件
 3. 回退：setInterval 1s 轮询 location.href
 
-从 URL 提取 conversationId：`/c/{id}`。
-
-**temp cache 处理**：
-- 无法解析 ID 时创建 `"temp:{timestamp}"`
-- 当真实 ID 出现时，通过 callback 通知 content.ts 触发 migration
-- callback 参数包含 `previousId`，用于判断是否需要从 temp 迁移
+**关键行为**：
+- `start()` 必须在 `onConversationChange` 注册之后调用
+- `start()` 调用时立即 emit 当前 URL 的 conversationId（previousId = null）
+- `getCurrentId()` 随时返回当前 ID
 
 ## 6. 导航与跳转
 
 ### jumpController
 
-jumpController 依赖 messageScanner.getElementByLocalId() 获取 DOM 元素（而非 domAdapter）。
+所有滚动操作通过 scrollDriver，不直接调用 el.scrollIntoView。
 
-#### 直接跳转（目标在 DOM 中）
+#### 直接跳转
 
 ```typescript
 async function jumpToMounted(target: CachedUserMessage): Promise<boolean> {
   const el = messageScanner.getElementByLocalId(target.localMessageId);
   if (!el) return false;
 
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: 'smooth' });
   highlightMessage(el);  // 1.5 秒临时高亮
   return true;
 }
 ```
 
-#### 渐进式跳转（目标不在 DOM 中）
+#### 渐进式跳转
 
 **混合策略**：
-1. ratio seed jump（scrollRatio 作为初始粗定位）
-2. order-guided adaptive stepping（基于 orderKey 判断方向，自适应步长滚动）
-3. 每步调用 messageScanner.rescan() 获取 ScanResult，基于 ScanResult 判断 mountedIds 和 visibleRange
-4. 目标消息一旦出现在 mountedIds 中，立即 scrollIntoView 精确定位
-5. 支持 cancellation token、最大尝试次数（30次）、失败 toast
-
-**不实现严格二分搜索**：ChatGPT 虚拟列表下 scrollHeight 和 DOM 挂载不稳定，严格二分收益不高。
+1. ratio seed jump（scrollRatio 粗定位）
+2. order-guided adaptive stepping（基于 orderKey 判断方向）
+3. 每步 rescan() 获取 ScanResult，判断 mountedIds 和 visibleRange
+4. 目标出现在 mountedIds → scrollElementIntoView 精确定位
+5. cancellation token + 最大 30 次 + 失败 toast
 
 ```typescript
 interface JumpToken {
@@ -506,42 +567,38 @@ async function jumpToCachedMessage(
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (token.cancelled) return;
 
-    // 检查目标是否已挂载（通过 messageScanner element map）
+    // 检查目标是否已挂载
     const el = messageScanner.getElementByLocalId(target.localMessageId);
     if (el) {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: 'smooth' });
       highlightMessage(el);
-      return;  // 成功
+      return;
     }
 
-    // 执行扫描获取当前状态
+    // 扫描当前状态
     const result: ScanResult = await messageScanner.rescan();
 
-    // 再次检查（rescan 后可能有新挂载）
+    // rescan 后再检查
     if (result.mountedIds.has(target.localMessageId)) {
       const found = messageScanner.getElementByLocalId(target.localMessageId);
       if (found) {
-        found.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        scrollDriver.scrollElementIntoView(found, { block: 'center', behavior: 'smooth' });
         highlightMessage(found);
         return;
       }
     }
 
-    // 第一次尝试使用 scrollRatio 快速定位
-    // 使用 Number.isFinite 而非 > 0，因为 ratio=0 表示页面顶部，也是有效位置
+    // 第一次用 scrollRatio 粗定位
     if (attempt === 0 && Number.isFinite(target.lastKnownScrollRatio)) {
       scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
     } else {
-      // 基于 orderKey 和 visibleRange 判断方向并滚动
       const direction = decideDirection(target, result.visibleRange);
       scrollOneChunk(direction, attempt);
     }
 
-    // 等待 DOM 稳定
     await waitForDomSettled(500);
   }
 
-  // 失败：显示 toast
   showJumpFailedToast(target);
 }
 ```
@@ -551,22 +608,19 @@ async function jumpToCachedMessage(
 | 函数 | 职责 |
 |------|------|
 | `decideDirection(target, visibleRange)` | 比较目标 orderKey 和可见范围，返回 'up' / 'down' |
-| `scrollOneChunk(direction, attempt)` | 通过 scrollDriver.scrollBy() 自适应步长滚动（前几次步长大，后面减小） |
-| `waitForDomSettled(ms)` | 等待 DOM 变化稳定（MutationObserver quiet period） |
-| `highlightMessage(el)` | 添加 1.5 秒高亮动画（ChatGPT 绿 #10a37f） |
+| `scrollOneChunk(direction, attempt)` | scrollDriver.scrollBy() 自适应步长 |
+| `waitForDomSettled(ms)` | 等待 DOM 稳定 |
+| `highlightMessage(el)` | 1.5 秒高亮（ChatGPT 绿 #10a37f） |
 
 **取消机制**：
-- 用户手动滚动（通过 scrollDriver.onUserScroll 检测 wheel/touch/key/pointerdown 事件，排除插件 Shadow DOM 内的交互）→ 取消当前跳转
-- 用户点击侧栏中另一个目标 → 取消当前，开始新跳转
-- 用户按 Esc → 取消当前跳转
-- 新跳转请求自动取消前一个
-- **不使用泛化 click 取消**（避免误触），不监听 scroll 事件取消（程序化滚动也会触发）
+- scrollDriver.onUserScroll（wheel/touch/key/pointerdown，排除 Shadow DOM）→ 取消
+- 点击侧栏另一个目标 → 取消当前，开始新跳转
+- Esc → 取消
+- 新跳转自动取消前一个
 
 ## 7. 侧栏 UI
 
 ### Shadow DOM 容器
-
-使用 WXT 官方 `createShadowRootUi` + `cssInjectionMode: 'ui'` 模式：
 
 ```typescript
 // src/ui/ShadowRootApp.tsx
@@ -574,45 +628,35 @@ import type { ContentScriptContext } from 'wxt/client';
 import { createShadowRootUi } from 'wxt/client';
 import { render } from 'preact';
 import Sidebar from './Sidebar';
+import type { RuntimeStore } from '../content/runtimeStore';
+import type { JumpController } from '../content/jumpController';
 
 export async function createShadowRootApp(
   ctx: ContentScriptContext,
-  deps: AppDeps
+  deps: { runtimeStore: RuntimeStore; jumpController: JumpController }
 ) {
   const ui = await createShadowRootUi(ctx, {
     name: 'chatgpt-navigator',
     position: 'overlay',
     anchor: 'body',
     onMount(container: HTMLElement) {
-      // container 是 shadowRoot 内的挂载容器
-      // render 返回的 root 用于后续清理
-      render(<Sidebar deps={deps} />, container);
+      render(<Sidebar runtimeStore={deps.runtimeStore} jumpController={deps.jumpController} />, container);
 
-      // 返回 cleanup 函数，onRemove 时 WXT 会调用
+      // 返回 cleanup 函数
       return () => {
         render(null, container);
       };
     },
-    onRemove(mounted: ReturnType<NonNullable<typeof onMount>>) {
-      // mounted 即 onMount 返回的 cleanup 函数
-      if (typeof mounted === 'function') {
-        mounted();
+    onRemove(cleanup: unknown) {
+      if (typeof cleanup === 'function') {
+        cleanup();
       }
     },
   });
 
-  // 触发挂载
   ui.mount();
 }
 ```
-
-**关键要点**：
-- `cssInjectionMode: 'ui'` 在 content.ts 入口中配置，WXT 自动将 import 的 styles.css 注入到 shadowRoot 内
-- `createShadowRootUi` 返回的对象需调用 `.mount()` 才实际挂载
-- `onMount` 返回 cleanup 函数（或 root 引用），`onRemove` 接收该返回值执行清理
-- 开发期 shadowRoot 为 open mode，可通过 DevTools 调试
-
-**定位**：宿主 div 通过 WXT overlay 定位在页面右侧，不遮挡 ChatGPT 原有滚动条和布局。
 
 ### 组件结构
 
@@ -638,34 +682,27 @@ export async function createShadowRootApp(
 ### 各组件
 
 **Sidebar.tsx** — 主容器
-- 通过 props 接收 cacheStore 和 jumpController
-- 使用 `cacheStore.subscribe()` 监听变更，用 `useReducer` 管理本地状态
-- 管理 collapsed 状态
+- 通过 props 接收 runtimeStore 和 jumpController
+- 使用 `runtimeStore.subscribe()` 监听变更，用 `useReducer` 或 `useState` 管理从 runtimeStore 同步的状态
+- **本地管理** `searchQuery`、`collapsed`、`searchResults`（这些不属于 runtimeStore）
 - 宽度：展开 280px / 折叠 40px（浮动按钮）
-- 过渡：`transition: width 0.2s ease`
 - 列表容器：`overflow-y: auto; max-height: calc(100vh - header - searchbox)`
 
 **MessageItem.tsx** — 单条消息
-- 序号（Q1, Q2...）+ preview 摘要
-- 状态标记：
-  - 活跃（高亮边框）— 当前视口附近或上方最近
-  - 已挂载（绿色实心点 ●）— 在 DOM 中，通过 `mountedIds.has(id)` 判断
-  - 仅缓存（灰色空心点 ○）— 不在 DOM 中
-- hover：显示 textForSearch 中的内容作为 tooltip（最大高度 200px）
-- 点击：触发 jumpController
-- 跳转中：显示 "Jumping..." + 动画
-- 使用 `import { memo } from 'preact/compat'` 包裹避免不必要的重渲染
+- 序号（Q1, Q2...）+ preview
+- 状态标记：active（高亮边框）、mounted（●）、cached（○）
+- hover：textForSearch tooltip（最大高度 200px）
+- 点击 → jumpController
+- `import { memo } from 'preact/compat'` 包裹
 
 **SearchBox.tsx** — 搜索
-- debounce 300ms 搜索 textForSearch 字段
-- 高亮匹配关键词
-- 保留原始序号，过滤显示
+- debounce 300ms 搜索 textForSearch
+- 高亮关键词
+- 状态由 Sidebar 本地管理，不经过 runtimeStore
 
-**JumpToast.tsx** — 跳转状态提示
-- 底部显示
-- 跳转中：进度动画 + "Jumping to Q{n}..."
-- 失败："Target not mounted. Try scrolling near this area."
-- 可关闭
+**JumpToast.tsx** — 跳转状态
+- 从 runtimeStore.getSnapshot().jumpState 读取状态
+- 底部显示，可关闭
 
 ### 样式
 
@@ -686,33 +723,33 @@ export async function createShadowRootApp(
 
 ### Preact 性能优化
 
-- 使用 `import { memo } from 'preact/compat'` 包裹 MessageItem 等纯展示组件
-- 使用 `useMemo` 缓存过滤后的消息列表
-- 使用 `useCallback` 缓存事件处理器
-- 明确不使用 `React.memo`（React 命名空间在 Preact 项目中不存在）
+- `import { memo } from 'preact/compat'` 包裹 MessageItem 等纯展示组件
+- `useMemo` 缓存过滤后的消息列表
+- `useCallback` 缓存事件处理器
 
 ## 8. Content Script 入口
 
 ```typescript
 // src/entrypoints/content.ts
-import './styles.css';  // WXT cssInjectionMode: 'ui' 时，import 的 CSS 自动注入 shadowRoot
+import '../ui/styles.css';  // 路径修正：content.ts 在 src/entrypoints/，styles.css 在 src/ui/
 
 export default defineContentScript({
   matches: ['https://chatgpt.com/*', 'https://chat.openai.com/*'],
   cssInjectionMode: 'ui',
 
   async main(ctx) {
+    // 1. 初始化纯依赖模块
     const domAdapter = new DomAdapter();
-    const scrollDriver = new ScrollDriver(domAdapter);
     const cacheStore = new CacheStore();
+    const scrollDriver = new ScrollDriver(domAdapter);
+
+    // 2. 初始化需要回调注册的模块
     const urlWatcher = new UrlWatcher();
-    const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver);
-    const jumpController = new JumpController(scanner, cacheStore, scrollDriver);
+    const runtimeStore = new RuntimeStore(cacheStore);
+    const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver, runtimeStore);
+    const jumpController = new JumpController(scanner, cacheStore, scrollDriver, runtimeStore);
 
-    scrollDriver.init();
-    scanner.start();
-    urlWatcher.start();
-
+    // 3. 注册 URL 变化回调（必须在 start 之前）
     urlWatcher.onConversationChange(async (id, previousId) => {
       if (!id) return;
 
@@ -721,26 +758,43 @@ export default defineContentScript({
         await cacheStore.migrateTempCache(previousId, id);
       }
 
-      await cacheStore.loadConversation(id);
+      // 加载缓存到 runtimeStore
+      const cache = await cacheStore.loadConversation(id);
+      runtimeStore.setConversationId(id);
+      runtimeStore.setMessages(cache?.messages ?? []);
+
+      // 缓存加载完成后 rescan
       await scanner.rescan();
     });
 
-    // 用户手动滚动取消跳转
+    // 4. 初始化滚动容器
+    scrollDriver.init();
+
+    // 5. 启动 URL 监听（立即 emit 当前 conversationId）
+    urlWatcher.start();
+    // → 触发上面的 callback → 加载当前会话缓存
+    // → await 是在 callback 内部，不阻塞后续
+
+    // 6. scanner.start() 在 cache load 完成后由 callback 触发首次 rescan
+    //    此处启动 MutationObserver
+    scanner.start();
+
+    // 7. 用户手动滚动取消跳转
     scrollDriver.onUserScroll(() => {
       jumpController.cancelCurrent();
     });
 
-    // 创建 Shadow DOM UI
-    await createShadowRootApp(ctx, { cacheStore, jumpController });
+    // 8. 创建 Shadow DOM UI
+    await createShadowRootApp(ctx, { runtimeStore, jumpController });
   }
 });
 ```
 
-**WXT 官方模式要点**：
-- `cssInjectionMode: 'ui'` — content.ts import 的 CSS 文件由 WXT 自动注入到 shadowRoot
-- `async main(ctx)` — main 函数为 async，ctx 是 ContentScriptContext
-- `await createShadowRootUi(...)` — 异步创建 UI
-- `ui.mount()` — 在 createShadowRootApp 内部调用，触发实际挂载
+**初始化顺序要点**：
+1. 先注册 onConversationChange callback
+2. 再 start urlWatcher（start 立即 emit 当前 ID → 触发 cache load）
+3. cache load 完成后 scanner.start() 的 MutationObserver 已就绪
+4. scanner.start() 本身只启动 MutationObserver，不依赖 cache 已加载
 
 ## 9. 错误处理
 
@@ -748,78 +802,74 @@ export default defineContentScript({
 |------|----------|
 | DOM 选择器失效 | 静默降级，不崩溃，侧栏显示"检测中..." |
 | storage 写入失败 | console.warn + 重试 1 次 |
-| 跳转超时 | 显示失败 toast，用户可手动滚动后重试 |
-| ConversationId 解析失败 | 使用临时 key `"temp:{timestamp}"`，后续迁移 |
-| ChatGPT 页面未加载完成 | MutationObserver 自然等待 DOM 就绪 |
+| 跳转超时 | 显示失败 toast |
+| ConversationId 解析失败 | temp:{timestamp}，后续迁移 |
+| ChatGPT 页面未加载完成 | MutationObserver 自然等待 |
 | Shadow DOM 注入失败 | console.error + 不影响页面 |
-| scrollContainer 找不到 | 回退到 document.scrollingElement 或 window |
-| storage 容量超限 | LRU 自动清理最旧的会话 |
+| scrollContainer 找不到 | 回退 document.scrollingElement / window |
+| storage 容量超限 | LRU 自动清理 |
 
 ## 10. 性能防护
 
 - **DOM 扫描**：MutationObserver 回调 debounce 500ms
-- **滚动采集**：throttle 300ms，仅扫描可见区域附近
-- **storage 写入**：debounce 2000ms 批量保存
-- **storage 容量**：每次保存后 getBytesInUse 检查，超阈值触发 LRU 清理
-- **Preact 渲染**：preact/compat 的 memo + useMemo + useCallback
+- **滚动采集**：throttle 300ms
+- **storage 写入**：debounce 2000ms
+- **storage 容量**：getBytesInUse + LRU
+- **Preact 渲染**：preact/compat memo + useMemo + useCallback
 - **搜索**：debounce 300ms
-- **文本截断**：textForSearch 截断到 2000 chars，避免单条消息占用过多 storage
+- **文本截断**：textForSearch ≤ 2000 chars
 
 ## 11. 清理
 
-页面关闭 / 导航离开 ChatGPT 时：
-- 停止 MutationObserver
-- 停止 IntersectionObserver
+- 停止 MutationObserver / IntersectionObserver
 - scrollDriver.destroy()
-- 移除 URL 监听
+- urlWatcher.stop()
 - 保存最后的缓存数据
-- WXT 自动清理 createShadowRootUi 创建的 UI（调用 onRemove → render(null, container)）
+- WXT 自动清理 UI（onRemove → render(null, container)）
 
 ## 12. 实施阶段
 
 ### Phase 1-2：基础 + 缓存 + 侧栏
 
 - 项目初始化（WXT + TypeScript + Preact）
-- content script 注入（cssInjectionMode: 'ui'，import styles.css）
-- domAdapter — 仅使用 `[data-message-author-role="user"]` 选择器，后备选择器标记 experimental 不启用
-- scrollDriver — 滚动容器抽象（含 scrollToRatio、getClientHeight）
-- urlWatcher — SPA 路由监听 + temp cache migration
-- messageScanner — DOM 扫描 + MutationObserver + rescan() → ScanResult
-- cacheStore — chrome.storage.local 读写 + 缓存合并 + occurrenceIndex 稳定分配 + getBytesInUse LRU 容量管理
-- mounted runtime state（elementById + mountedIds）
-- Shadow DOM 侧栏 — WXT createShadowRootUi（async main + await + ui.mount()）
-- 侧栏展示已采集消息列表（含 mounted 状态标记）
+- content script 注入（cssInjectionMode: 'ui'，import '../ui/styles.css'）
+- domAdapter — 仅 data-message-author-role
+- scrollDriver（含 scrollToRatio、getClientHeight、scrollElementIntoView）
+- urlWatcher（start 立即 emit、getCurrentId）
+- cacheStore（resolveScannedCandidates + LRU + temp migration）
+- runtimeStore（mountedIds、activeMessageId、jumpState、elementById）
+- messageScanner（rescan → ScanResult，候选交给 cacheStore 解析身份）
+- Shadow DOM 侧栏（WXT createShadowRootUi，onMount 返回 cleanup）
+- 侧栏展示已采集消息列表
 
 ### Phase 3：直接跳转 + 搜索
 
-- 直接跳转（目标在 mountedIds 中 → scrollIntoView），返回 Promise<boolean>
-- 目标高亮（1.5 秒临时高亮）
-- IntersectionObserver 追踪 activeMessageId（含长 assistant 回答场景：视口上方最近 user message）
-- 侧栏 active 高亮
-- 搜索框
+- 直接跳转（Promise<boolean>，通过 scrollDriver.scrollElementIntoView）
+- 目标高亮（1.5 秒）
+- IntersectionObserver activeMessageId（含长 assistant 场景）
+- 搜索框（Sidebar 本地状态）
 
 ### Phase 4：渐进式跳转
 
-在 ScanResult / ScrollDriver / cancellation token 都稳定之后：
-- 渐进式跳转算法（ratio seed：Number.isFinite 判断 + order-guided adaptive stepping）
-- 跳转取消（wheel/touch/key/pointerdown 事件，排除插件 Shadow DOM 内交互）
+- 渐进式跳转（Number.isFinite + order-guided adaptive stepping）
+- 跳转取消（wheel/touch/key/pointerdown，排除 Shadow DOM）
 - 最大尝试次数 + 失败 toast
-- JumpToast 组件
+- JumpToast
 
 ### Phase 5：收尾
 
 - README + 隐私说明
-- 权限最小化确认
+- 权限最小化
 - Chrome/Edge 加载说明
 - 打包测试
 
 ## 13. 已知限制
 
 - 插件无法读取从未在 DOM 中出现过的历史消息
-- 第一次打开超长对话时，远处问题需要用户滚动经过后才会被缓存
+- 第一次打开超长对话时，远处问题需滚动经过后才被缓存
 - ChatGPT 页面结构变化可能导致 DOM 识别失效
-- 渐进式跳转依赖缓存过的 scroll metadata，不能保证 100% 精确
-- chrome.storage.local 默认 QUOTA_BYTES 为 10MB（通过 LRU 管理控制在 8MB 以内）
+- 渐进式跳转依赖 scroll metadata，不能保证 100% 精确
+- chrome.storage.local 默认 10MB（LRU 控制在 8MB 以内）
 
 ## 14. 后续路线
 
@@ -828,5 +878,5 @@ export default defineContentScript({
 - 导出/导入缓存
 - 自定义快捷键
 - bracket + binary refinement 跳转优化
-- fullText 可选存储（用于完整历史回看）
-- 申请 unlimitedStorage 权限（如果 LRU 管理不够用）
+- fullText 可选存储
+- unlimitedStorage 权限（如需要）
