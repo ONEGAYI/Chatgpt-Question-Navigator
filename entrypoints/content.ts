@@ -45,6 +45,36 @@ export default defineContentScript({
       urlWatcher.stop();
     });
 
+    // Popup 缓存管理消息监听
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg.type === 'CLEAR_CONVERSATION') {
+        cacheStore.clearConversation(msg.id as string).then(() => {
+          if (msg.id === runtimeStore.getSnapshot().conversationId) {
+            runtimeStore.setMessages([]);
+          }
+          sendResponse({ success: true });
+        }).catch((err) => sendResponse({ success: false, error: String(err) }));
+        return true;
+      }
+
+      if (msg.type === 'CLEAR_ALL') {
+        cacheStore.clearAll().then(() => {
+          runtimeStore.setMessages([]);
+          sendResponse({ success: true });
+        }).catch((err) => sendResponse({ success: false, error: String(err) }));
+        return true;
+      }
+
+      if (msg.type === 'LRU_CLEANUP') {
+        cacheStore.getBytesInUse().then(async (bytesBefore) => {
+          await cacheStore.performLruCleanupIfNeeded();
+          const bytesAfter = await cacheStore.getBytesInUse();
+          sendResponse({ success: true, bytesBefore, bytesAfter });
+        }).catch((err) => sendResponse({ success: false, error: String(err) }));
+        return true;
+      }
+    });
+
     await createShadowRootApp(ctx, { runtimeStore, jumpController });
   }
 });
