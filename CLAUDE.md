@@ -62,7 +62,8 @@ Popup → Content Script 通信协议：
 使用 Preact 在 Shadow DOM 内渲染，样式通过 `src/ui/styles.css` 注入（CSS 变量控制暗色/亮色主题）。
 
 - `ShadowRootApp.tsx` — 挂载点，通过 WXT 的 `createShadowRootUi` 创建隔离容器
-- `Sidebar.tsx` — 主侧栏，从 RuntimeStore 订阅状态，管理搜索和折叠
+- `Sidebar.tsx` — 主组件，三态模式切换（展开/Mini/折叠），从 RuntimeStore 订阅状态
+- `MiniBar.tsx` — Mini 模式导航条：滑动窗口（MAX_VISIBLE=7）渲染问题标记，▲/▼ 导航，hover preview
 - `MessageItem.tsx` — 单条消息项，搜索高亮和 hover 预览
 - `SearchBox.tsx` — 搜索输入（300ms 防抖）
 
