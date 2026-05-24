@@ -46,10 +46,10 @@ export class CacheStore {
   async saveConversation(cache: ConversationCache): Promise<void> {
     const normalized = this.normalizeCache({ ...cache, updatedAt: Date.now() });
     await chrome.storage.local.set({ [this.cacheKey(cache.conversationId)]: normalized });
-    await this.touchMeta(cache.conversationId);
     this.currentCache = normalized;
-    this.dirty = false;
+    await this.touchMeta(cache.conversationId);
     await this.performLruCleanupIfNeeded();
+    this.dirty = false;
   }
 
   async clearConversation(id: string): Promise<void> {
@@ -67,6 +67,27 @@ export class CacheStore {
     await chrome.storage.local.remove([...keys, META_KEY]);
     this.currentCache = null;
     this.dirty = false;
+  }
+
+  /**
+   * 原子替换对话消息 — 仅由 AutoCollector 调用。
+   * 同时写入 messages、orderedIds、orderMode='canonical'。
+   */
+  async replaceConversationMessages(
+    conversationId: string,
+    messages: CachedUserMessage[]
+  ): Promise<void> {
+    const orderedIds = messages.map((m) => m.localMessageId);
+    const cache: ConversationCache = {
+      conversationId,
+      updatedAt: Date.now(),
+      messages,
+      orderedIds,
+      orderMode: 'canonical',
+    };
+    this.currentCache = this.normalizeCache(cache);
+    this.dirty = true;
+    await this.saveConversation(this.currentCache);
   }
 
   async resolveScannedCandidates(conversationId: string, candidates: StoredCandidate[]): Promise<ResolveResult> {
@@ -90,13 +111,14 @@ export class CacheStore {
     const newOrUpdated: CachedUserMessage[] = [];
     const nextMessagesById = new Map<string, CachedUserMessage>(existing.map((message) => [message.localMessageId, message]));
     let candidateIndex = 0;
+    const maxExistingOrderKey = existing.length > 0 ? existing.reduce((max, m) => m.orderKey > max ? m.orderKey : max, -1) : -1;
 
     for (const segment of segments) {
       const segmentIds: string[] = [];
       for (const candidate of segment.candidates) {
         const matched = this.matchCandidate(conversationId, candidate, existing, usedExisting);
         const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
-        const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex);
+        const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex, candidate.turnKey);
 
         const next: CachedUserMessage = {
           conversationId,
@@ -110,7 +132,9 @@ export class CacheStore {
           lastSeenAt: now,
           lastKnownScrollTop: candidate.scrollTop,
           lastKnownScrollRatio: candidate.scrollRatio,
-          orderKey: matched?.orderKey ?? candidate.absoluteTop
+          orderKey: matched?.orderKey ?? (this.currentCache?.orderMode === 'canonical'
+            ? maxExistingOrderKey + 1 + candidateIndex
+            : candidate.absoluteTop)
         };
 
         if (!matched || this.hasMeaningfulChange(matched, next)) {
@@ -138,11 +162,29 @@ export class CacheStore {
       });
     }
 
-    const orderedIds = mergeOrderedSegments(existingOrderedIds, resolvedSegments);
+    let orderedIds: string[];
+
+    if (this.currentCache?.orderMode === 'canonical') {
+      // canonical 模式：不调用 mergeOrderedSegments，只 append 新消息到末尾
+      const knownIds = new Set(existingOrderedIds);
+      const newIds: string[] = [];
+      for (const resolved of resolvedCandidates) {
+        if (!knownIds.has(resolved.localMessageId)) {
+          newIds.push(resolved.localMessageId);
+          knownIds.add(resolved.localMessageId);
+        }
+      }
+      orderedIds = [...existingOrderedIds, ...newIds];
+    } else {
+      // incremental 模式：使用原有的 mergeOrderedSegments
+      orderedIds = mergeOrderedSegments(existingOrderedIds, resolvedSegments);
+    }
+
     const allMessages = orderMessagesByIds(nextMessagesById, orderedIds);
     if (!arraysEqual(existingOrderedIds, orderedIds)) this.dirty = true;
 
     this.currentCache = {
+      ...this.currentCache!,
       conversationId,
       updatedAt: now,
       messages: allMessages,
@@ -191,7 +233,8 @@ export class CacheStore {
         conversationId: realId,
         localMessageId: message.localMessageId.replace(`${tempId}::`, `${realId}::`)
       })),
-      orderedIds: temp.orderedIds.map((id) => id.replace(`${tempId}::`, `${realId}::`))
+      orderedIds: temp.orderedIds.map((id) => id.replace(`${tempId}::`, `${realId}::`)),
+      ...(temp.orderMode ? { orderMode: temp.orderMode } : {}),
     };
 
     await chrome.storage.local.set({ [this.cacheKey(realId)]: migrated });
@@ -254,6 +297,12 @@ export class CacheStore {
     existing: CachedUserMessage[],
     usedExisting: Set<string>
   ): CachedUserMessage | null {
+    if (candidate.turnKey) {
+      const turnId = `${conversationId}::turn::${candidate.turnKey}`;
+      const matched = existing.find((message) => message.localMessageId === turnId && !usedExisting.has(message.localMessageId));
+      if (matched) return matched;
+    }
+
     if (candidate.observedDomMessageId) {
       const domId = `${conversationId}::dom::${candidate.observedDomMessageId}`;
       const exact = existing.find((message) => message.localMessageId === domId && !usedExisting.has(message.localMessageId));
@@ -286,7 +335,8 @@ export class CacheStore {
     return indexes.length === 0 ? 0 : Math.max(...indexes) + 1;
   }
 
-  private createLocalMessageId(conversationId: string, observedDomMessageId: string | null, textHash: string, occurrenceIndex: number): string {
+  private createLocalMessageId(conversationId: string, observedDomMessageId: string | null, textHash: string, occurrenceIndex: number, turnKey?: string | null): string {
+    if (turnKey) return `${conversationId}::turn::${turnKey}`;
     if (observedDomMessageId) return `${conversationId}::dom::${observedDomMessageId}`;
     return `${conversationId}::hash::${textHash}::${occurrenceIndex}`;
   }

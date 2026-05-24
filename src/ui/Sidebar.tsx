@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import type { AutoCollector } from '../content/autoCollector';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
-import type { CachedUserMessage, RuntimeState } from '../shared/types';
+import type { AutoCollectPhase, CachedUserMessage, RuntimeState } from '../shared/types';
 import { MessageItem } from './MessageItem';
 import { MiniBar } from './MiniBar';
 import { SearchBox } from './SearchBox';
@@ -9,6 +10,35 @@ import { SearchBox } from './SearchBox';
 type SidebarMode = 'expanded' | 'mini' | 'collapsed';
 
 const MODE_STORAGE_KEY = 'cqn-sidebar-mode';
+
+const STATUS_TEXT: Record<AutoCollectPhase, string> = {
+  idle: '',
+  preparing: 'Preparing collection...',
+  collecting: '',
+  finalizing: 'Finalizing...',
+  completed: '',
+  cancelled: 'Collection cancelled',
+  failed: '',
+};
+
+function getStatusText(phase: AutoCollectPhase | null | undefined, progress: { foundCount: number; hydratedCount?: number; totalTurns?: number; unhydratedCount?: number; errorMessage?: string } | null, messageCount: number): string {
+  if (!phase || phase === 'idle') return `Indexed ${messageCount} questions locally`;
+  if (phase === 'collecting') {
+    const hydrated = progress?.hydratedCount ?? 0;
+    const total = progress?.totalTurns ?? 0;
+    const found = progress?.foundCount ?? 0;
+    return `Collecting... ${found} questions (${hydrated}/${total} turns)`;
+  }
+  if (phase === 'completed') {
+    const unhydrated = progress?.unhydratedCount ?? 0;
+    if (unhydrated > 0) {
+      return `Collected ${messageCount} questions, ${unhydrated} turns unhydrated`;
+    }
+    return `Collected ${messageCount} questions`;
+  }
+  if (phase === 'failed') return `Collection failed: ${progress?.errorMessage ?? 'unknown'}`;
+  return STATUS_TEXT[phase];
+}
 
 interface HoverState {
   message: CachedUserMessage;
@@ -19,9 +49,11 @@ interface SidebarProps {
   runtimeStore: RuntimeStore;
   jumpController: JumpController;
   onClearCurrentSession: () => Promise<void>;
+  onStartAutoCollect: () => void;
+  autoCollector: AutoCollector;
 }
 
-export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }: SidebarProps) {
+export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, onStartAutoCollect, autoCollector }: SidebarProps) {
   const [snapshot, setSnapshot] = useState<RuntimeState>(() => runtimeStore.getSnapshot());
   const [mode, setMode] = useState<SidebarMode>('expanded');
   const [modeLoaded, setModeLoaded] = useState(false);
@@ -30,6 +62,8 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }:
   const [hover, setHover] = useState<HoverState | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+
+  const collectPhase = snapshot.autoCollectProgress?.phase;
 
   useEffect(() => runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot())), [runtimeStore]);
 
@@ -121,6 +155,35 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }:
           <div style={{ display: 'flex', gap: '4px' }}>
             {snapshot.conversationId && (
               <button
+                className="cqn-collapse"
+                type="button"
+                onClick={() => {
+                  if (collectPhase === 'collecting' || collectPhase === 'preparing') {
+                    autoCollector.cancel();
+                  } else {
+                    onStartAutoCollect();
+                  }
+                }}
+                disabled={clearing || collectPhase === 'finalizing'}
+                title={
+                  collectPhase === 'collecting' ? '取消采集' :
+                  collectPhase === 'preparing' ? '准备中...' :
+                  collectPhase === 'finalizing' ? '正在完成...' :
+                  '重新采集本对话'
+                }
+              >
+                {collectPhase === 'collecting' || collectPhase === 'preparing' || collectPhase === 'finalizing' ? (
+                  <span className="cqn-collect-spinner">↻</span>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                )}
+              </button>
+            )}
+            {snapshot.conversationId && (
+              <button
                 className={`cqn-collapse ${confirmClear ? 'is-confirming' : ''}`}
                 type="button"
                 onClick={handleClearClick}
@@ -149,7 +212,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession }:
 
         {!clearing && (
           <div className="cqn-status">
-            Indexed {snapshot.messages.length} questions locally
+            {getStatusText(collectPhase, snapshot.autoCollectProgress, snapshot.messages.length)}
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import type { CachedUserMessage, JumpState, RuntimeState } from '../shared/types';
+import type { AutoCollectProgress, CachedUserMessage, JumpState, RuntimeState } from '../shared/types';
 
 export class RuntimeStore {
   private state: RuntimeState = {
@@ -7,7 +7,8 @@ export class RuntimeStore {
     elementById: new Map(),
     mountedIds: new Set(),
     activeMessageId: null,
-    jumpState: { status: 'idle' }
+    jumpState: { status: 'idle' },
+    autoCollectProgress: null,
   };
 
   private listeners = new Set<() => void>();
@@ -17,7 +18,10 @@ export class RuntimeStore {
       ...this.state,
       messages: [...this.state.messages],
       elementById: new Map(this.state.elementById),
-      mountedIds: new Set(this.state.mountedIds)
+      mountedIds: new Set(this.state.mountedIds),
+      autoCollectProgress: this.state.autoCollectProgress
+        ? { ...this.state.autoCollectProgress }
+        : null,
     };
   }
 
@@ -29,7 +33,8 @@ export class RuntimeStore {
       elementById: new Map(),
       mountedIds: new Set(),
       activeMessageId: null,
-      jumpState: { status: 'idle' }
+      jumpState: { status: 'idle' },
+      autoCollectProgress: null,
     };
     this.emit();
   }
@@ -59,6 +64,11 @@ export class RuntimeStore {
 
   setJumpState(state: JumpState): void {
     this.state = { ...this.state, jumpState: state };
+    this.emit();
+  }
+
+  setAutoCollectProgress(progress: AutoCollectProgress | null): void {
+    this.state = { ...this.state, autoCollectProgress: progress };
     this.emit();
   }
 
