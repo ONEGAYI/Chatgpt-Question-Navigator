@@ -114,20 +114,9 @@ export class MessageScanner {
   }
 
   updateScrollMeta(localId: string, scrollTop: number, scrollRatio: number): void {
-    const snapshot = this.runtimeStore.getSnapshot();
-    const target = snapshot.messages.find((message) => message.localMessageId === localId);
-    if (!target || !snapshot.conversationId) return;
-
-    void this.cacheStore.resolveScannedCandidates(snapshot.conversationId, [{
-      observedDomMessageId: target.localMessageId.includes('::dom::') ? target.localMessageId.split('::dom::')[1] ?? null : null,
-      text: target.textForSearch,
-      textHash: target.textHash,
-      preview: target.preview,
-      textForSearch: target.textForSearch,
-      scrollRatio,
-      scrollTop,
-      absoluteTop: target.orderKey
-    }]);
+    const { conversationId } = this.runtimeStore.getSnapshot();
+    if (!conversationId) return;
+    this.cacheStore.updateMessageScrollMeta(conversationId, localId, scrollTop, scrollRatio);
   }
 
   private scheduleRescan(): void {
@@ -190,17 +179,20 @@ export class MessageScanner {
 
   private computeVisibleRange(): VisibleRange | null {
     const snapshot = this.runtimeStore.getSnapshot();
-    const visibleOrderKeys = snapshot.messages
-      .filter((message) => {
-        const element = this.elementById.get(message.localMessageId);
-        return element ? this.domAdapter.isElementInViewport(element) : false;
-      })
-      .map((message) => message.orderKey);
+    const visibleIndices: number[] = [];
 
-    if (visibleOrderKeys.length === 0) return null;
+    for (let i = 0; i < snapshot.messages.length; i++) {
+      const message = snapshot.messages[i]!;
+      const element = this.elementById.get(message.localMessageId);
+      if (element && this.domAdapter.isElementInViewport(element)) {
+        visibleIndices.push(i);
+      }
+    }
+
+    if (visibleIndices.length === 0) return null;
     return {
-      minOrderKey: Math.min(...visibleOrderKeys),
-      maxOrderKey: Math.max(...visibleOrderKeys)
+      minIndex: Math.min(...visibleIndices),
+      maxIndex: Math.max(...visibleIndices)
     };
   }
 }

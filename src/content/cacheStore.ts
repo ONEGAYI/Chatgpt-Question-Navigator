@@ -177,6 +177,26 @@ export class CacheStore {
     await chrome.storage.local.set({ [META_KEY]: meta });
   }
 
+  updateMessageScrollMeta(
+    conversationId: string,
+    localMessageId: string,
+    scrollTop: number,
+    scrollRatio: number
+  ): boolean {
+    this.ensureCurrentCache(conversationId);
+    const messages = this.currentCache!.messages;
+    const index = messages.findIndex((m) => m.localMessageId === localMessageId);
+    if (index < 0) return false;
+
+    const prev = messages[index]!;
+    if (prev.lastKnownScrollTop === scrollTop && prev.lastKnownScrollRatio === scrollRatio) return false;
+
+    messages[index] = { ...prev, lastKnownScrollTop: scrollTop, lastKnownScrollRatio: scrollRatio, lastSeenAt: Date.now() };
+    this.dirty = true;
+    this.scheduleSave();
+    return true;
+  }
+
   async flush(): Promise<void> {
     if (this.saveTimer !== null) {
       window.clearTimeout(this.saveTimer);

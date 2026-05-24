@@ -63,8 +63,8 @@ export interface RuntimeState {
 }
 
 export interface VisibleRange {
-  minOrderKey: number;
-  maxOrderKey: number;
+  minIndex: number;
+  maxIndex: number;
 }
 
 export interface ScanResult {
