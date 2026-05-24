@@ -3,11 +3,19 @@ import { hashText } from '../shared/hash';
 import { toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
 import type { DomAdapter } from './domAdapter';
+import type { ScanDirection, ScanSegmentKind } from './orderList';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
 
 const MUTATION_DEBOUNCE_MS = 500;
 const SCROLL_THROTTLE_MS = 300;
+const MIN_SEGMENT_GAP_PX = 320;
+
+interface ScannedCandidateSegment {
+  candidates: ScannedUserMessageCandidate[];
+  direction: ScanDirection;
+  kind: ScanSegmentKind;
+}
 
 export class MessageScanner {
   private mutationObserver: MutationObserver | null = null;
@@ -17,6 +25,9 @@ export class MessageScanner {
   private elementById = new Map<string, HTMLElement>();
   private mountedIds = new Set<string>();
   private cleanupScroll: (() => void) | null = null;
+  private lastScanScrollTop: number | null = null;
+  private lastObservedScrollTop: number | null = null;
+  private lastObservedDirection: ScanDirection = 'unknown';
 
   constructor(
     private readonly domAdapter: DomAdapter,
@@ -35,6 +46,9 @@ export class MessageScanner {
   clearState(): void {
     this.elementById.clear();
     this.mountedIds = new Set();
+    this.lastScanScrollTop = null;
+    this.lastObservedScrollTop = null;
+    this.lastObservedDirection = 'unknown';
     if (this.mutationTimer !== null) {
       window.clearTimeout(this.mutationTimer);
       this.mutationTimer = null;
@@ -47,6 +61,9 @@ export class MessageScanner {
     this.cleanupScroll?.();
     this.elementById.clear();
     this.mountedIds.clear();
+    this.lastScanScrollTop = null;
+    this.lastObservedScrollTop = null;
+    this.lastObservedDirection = 'unknown';
   }
 
   async rescan(): Promise<ScanResult> {
@@ -65,6 +82,8 @@ export class MessageScanner {
 
     const elements = this.domAdapter.findUserMessages();
     const candidates: ScannedUserMessageCandidate[] = [];
+    const scrollTop = this.scrollDriver.getScrollTop();
+    const scanDirection = this.getScanDirection(scrollTop);
 
     for (let index = 0; index < elements.length; index += 1) {
       const element = elements[index];
@@ -78,18 +97,25 @@ export class MessageScanner {
         preview: toPreview(text),
         textForSearch: toSearchText(text),
         scrollRatio: this.scrollDriver.getScrollRatio(),
-        scrollTop: this.scrollDriver.getScrollTop(),
+        scrollTop,
         absoluteTop: this.scrollDriver.getAbsoluteTop(element),
         element
       });
     }
 
-    const result = await this.cacheStore.resolveScannedCandidates(
+    const candidateSegments = this.createCandidateSegments(candidates, scanDirection);
+    const sortedCandidates = candidateSegments.flatMap((segment) => segment.candidates);
+    const result = await this.cacheStore.resolveScannedSegments(
       conversationId,
-      candidates.map(({ element: _element, ...candidate }) => candidate)
+      candidateSegments.map((segment) => ({
+        candidates: segment.candidates.map(({ element: _element, ...candidate }) => candidate),
+        direction: segment.direction,
+        kind: segment.kind
+      }))
     );
+    this.lastScanScrollTop = scrollTop;
 
-    this.rebuildMountedMaps(result, candidates);
+    this.rebuildMountedMaps(result, sortedCandidates);
     this.runtimeStore.setMessages(result.allMessages);
     this.runtimeStore.setMountedState(this.mountedIds, this.elementById);
     this.reobserveMountedElements();
@@ -118,16 +144,7 @@ export class MessageScanner {
     const target = snapshot.messages.find((message) => message.localMessageId === localId);
     if (!target || !snapshot.conversationId) return;
 
-    void this.cacheStore.resolveScannedCandidates(snapshot.conversationId, [{
-      observedDomMessageId: target.localMessageId.includes('::dom::') ? target.localMessageId.split('::dom::')[1] ?? null : null,
-      text: target.textForSearch,
-      textHash: target.textHash,
-      preview: target.preview,
-      textForSearch: target.textForSearch,
-      scrollRatio,
-      scrollTop,
-      absoluteTop: target.orderKey
-    }]);
+    this.cacheStore.updateMessageScrollMeta(target.localMessageId, scrollTop, scrollRatio);
   }
 
   private scheduleRescan(): void {
@@ -138,6 +155,7 @@ export class MessageScanner {
   }
 
   private scheduleScrollCapture(): void {
+    this.captureObservedScrollDirection();
     if (this.scrollTimer !== null) return;
     this.scrollTimer = window.setTimeout(() => {
       this.scrollTimer = null;
@@ -159,6 +177,57 @@ export class MessageScanner {
       const candidate = candidates[resolved.candidateIndex];
       if (candidate) this.elementById.set(resolved.localMessageId, candidate.element);
     }
+  }
+
+  private createCandidateSegments(
+    candidates: ScannedUserMessageCandidate[],
+    direction: ScanDirection
+  ): ScannedCandidateSegment[] {
+    const sorted = [...candidates].sort((a, b) => a.absoluteTop - b.absoluteTop);
+    if (sorted.length === 0) return [];
+
+    const threshold = Math.max(MIN_SEGMENT_GAP_PX, this.scrollDriver.getClientHeight() * 0.8);
+    const chunks: ScannedUserMessageCandidate[][] = [];
+    let current: ScannedUserMessageCandidate[] = [];
+
+    for (const candidate of sorted) {
+      const previous = current[current.length - 1];
+      if (previous && candidate.absoluteTop - previous.absoluteTop > threshold) {
+        chunks.push(current);
+        current = [];
+      }
+      current.push(candidate);
+    }
+    if (current.length > 0) chunks.push(current);
+
+    return chunks.map((chunk, index) => ({
+      candidates: chunk,
+      direction,
+      kind: this.segmentKind(index, chunks.length)
+    }));
+  }
+
+  private segmentKind(index: number, count: number): ScanSegmentKind {
+    if (count === 1) return 'local-contiguous';
+    if (index === 0) return 'detached-top';
+    if (index === count - 1) return 'detached-bottom';
+    return 'local-contiguous';
+  }
+
+  private getScanDirection(scrollTop: number): ScanDirection {
+    if (this.lastScanScrollTop === null) return 'unknown';
+    if (scrollTop < this.lastScanScrollTop) return 'up';
+    if (scrollTop > this.lastScanScrollTop) return 'down';
+    return this.lastObservedDirection;
+  }
+
+  private captureObservedScrollDirection(): void {
+    const scrollTop = this.scrollDriver.getScrollTop();
+    if (this.lastObservedScrollTop !== null) {
+      if (scrollTop < this.lastObservedScrollTop) this.lastObservedDirection = 'up';
+      if (scrollTop > this.lastObservedScrollTop) this.lastObservedDirection = 'down';
+    }
+    this.lastObservedScrollTop = scrollTop;
   }
 
   private reobserveMountedElements(): void {
