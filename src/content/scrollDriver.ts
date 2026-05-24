@@ -1,13 +1,15 @@
 import type { DomAdapter } from './domAdapter';
 
 type ScrollTarget = HTMLElement | Window;
+export type UserScrollDirection = 'up' | 'down' | 'unknown';
 
 export class ScrollDriver {
   private target: ScrollTarget = window;
   private scrollListeners = new Set<() => void>();
-  private userScrollListeners = new Set<() => void>();
+  private userScrollListeners = new Set<(direction: UserScrollDirection) => void>();
   private isProgrammatic = false;
   private cleanupFns: Array<() => void> = [];
+  private touchStartY: number | null = null;
 
   constructor(private readonly domAdapter: DomAdapter) {}
 
@@ -82,7 +84,7 @@ export class ScrollDriver {
     return () => this.scrollListeners.delete(callback);
   }
 
-  onUserScroll(callback: () => void): () => void {
+  onUserScroll(callback: (direction: UserScrollDirection) => void): () => void {
     this.userScrollListeners.add(callback);
     return () => this.userScrollListeners.delete(callback);
   }
@@ -109,20 +111,31 @@ export class ScrollDriver {
     scrollTarget.addEventListener('scroll', onScroll, { passive: true });
     this.cleanupFns.push(() => scrollTarget.removeEventListener('scroll', onScroll));
 
-    const onWheel = () => this.notifyUserScroll();
-    const onTouch = () => this.notifyUserScroll();
+    const onWheel = (event: Event) => this.notifyUserScroll(directionFromDelta((event as WheelEvent).deltaY));
+    const onTouchStart = (event: Event) => {
+      const touchEvent = event as TouchEvent;
+      this.touchStartY = touchEvent.touches[0]?.clientY ?? null;
+      this.notifyUserScroll('unknown');
+    };
+    const onTouchMove = (event: Event) => {
+      const touchEvent = event as TouchEvent;
+      const currentY = touchEvent.touches[0]?.clientY ?? null;
+      if (this.touchStartY === null || currentY === null) return;
+      this.notifyUserScroll(directionFromDelta(this.touchStartY - currentY));
+    };
     const onKey = (event: KeyboardEvent) => {
-      if (['PageUp', 'PageDown', ' ', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-        this.notifyUserScroll();
-      }
+      const direction = directionFromKey(event.key);
+      if (direction !== 'unknown') this.notifyUserScroll(direction);
     };
 
     scrollTarget.addEventListener('wheel', onWheel, { passive: true });
-    scrollTarget.addEventListener('touchstart', onTouch, { passive: true });
+    scrollTarget.addEventListener('touchstart', onTouchStart, { passive: true });
+    scrollTarget.addEventListener('touchmove', onTouchMove, { passive: true });
     window.addEventListener('keydown', onKey);
 
     this.cleanupFns.push(() => scrollTarget.removeEventListener('wheel', onWheel));
-    this.cleanupFns.push(() => scrollTarget.removeEventListener('touchstart', onTouch));
+    this.cleanupFns.push(() => scrollTarget.removeEventListener('touchstart', onTouchStart));
+    this.cleanupFns.push(() => scrollTarget.removeEventListener('touchmove', onTouchMove));
     this.cleanupFns.push(() => window.removeEventListener('keydown', onKey));
   }
 
@@ -130,8 +143,20 @@ export class ScrollDriver {
     this.isProgrammatic = true;
   }
 
-  private notifyUserScroll(): void {
+  private notifyUserScroll(direction: UserScrollDirection): void {
     if (this.isProgrammatic) return;
-    this.userScrollListeners.forEach((listener) => listener());
+    this.userScrollListeners.forEach((listener) => listener(direction));
   }
+}
+
+export function directionFromDelta(deltaY: number): UserScrollDirection {
+  if (deltaY < 0) return 'up';
+  if (deltaY > 0) return 'down';
+  return 'unknown';
+}
+
+export function directionFromKey(key: string): UserScrollDirection {
+  if (['PageUp', 'ArrowUp', 'Home'].includes(key)) return 'up';
+  if (['PageDown', ' ', 'ArrowDown', 'End'].includes(key)) return 'down';
+  return 'unknown';
 }

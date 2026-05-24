@@ -17,7 +17,8 @@ async function importTypeScriptModule(relativePath) {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 }
 
-const { mergeOrderedIds, mergeOrderedSegments } = await importTypeScriptModule('../src/content/orderList.ts');
+const { inferDirectionFromScrollAnchor, mergeOrderedIds, mergeOrderedSegments } = await importTypeScriptModule('../src/content/orderList.ts');
+const { directionFromDelta, directionFromKey } = await importTypeScriptModule('../src/content/scrollDriver.ts');
 
 test('anchor-splice preserves established order when later scans omit early messages', () => {
   const bottom = mergeOrderedIds([], ['M50', 'M52', 'M54']);
@@ -86,4 +87,26 @@ test('normalization-style append does not let stale message array reorder known 
   ];
 
   assert.deepEqual(normalized, ['M20', 'M30', 'M50', 'M60']);
+});
+
+test('unknown direction can be inferred from scroll metadata for earlier lazy-loaded history', () => {
+  const direction = inferDirectionFromScrollAnchor({
+    segmentRatio: 0.2,
+    existingRatios: [0.5]
+  });
+  const merged = mergeOrderedSegments(['M50'], [{
+    ids: ['M20'],
+    direction,
+    kind: 'local-contiguous'
+  }]);
+
+  assert.equal(direction, 'up');
+  assert.deepEqual(merged, ['M20', 'M50']);
+});
+
+test('user scroll input exposes direction before lazy-load mutation scans run', () => {
+  assert.equal(directionFromDelta(-1), 'up');
+  assert.equal(directionFromDelta(1), 'down');
+  assert.equal(directionFromKey('PageUp'), 'up');
+  assert.equal(directionFromKey('PageDown'), 'down');
 });
