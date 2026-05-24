@@ -12,7 +12,7 @@ chatgpt-question-navigator/
 │   │   ├── autoCollector.ts        # 自动 bottom-to-top 采集，按钮触发，生成 canonical 顺序
 │   │   ├── cacheStore.ts           # chrome.storage.local 持久化，按会话缓存消息，LRU 清理
 │   │   ├── domAdapter.ts           # ChatGPT DOM 结构查询抽象，选择器集中定义
-│   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
+│   │   ├── jumpController.ts       # 跳转控制：已挂载直接跳转 + 未挂载渐进式跳转（JumpToken 可取消）
 │   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
 │   │   ├── orderList.ts            # 有序 ID 分段合并算法（contiguous/detached 段合并 + 方向推断）
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
@@ -26,7 +26,8 @@ chatgpt-question-navigator/
 │   │   ├── text.ts                 # 文本归一化、截断预览、搜索分词高亮
 │   │   └── types.ts                # 全局类型定义（CachedUserMessage, RuntimeState 等）
 │   └── ui/
-│       ├── MessageItem.tsx          # 单条消息列表项，搜索高亮 + hover 预览
+│       ├── MessageItem.tsx          # 单条消息列表项，搜索高亮 + hover 预览 + 跳转状态
+│       ├── JumpToast.tsx            # 跳转进度和失败状态 Toast，底部固定显示
 │       ├── MiniBar.tsx              # Mini 模式导航条，滑动窗口标记 + ▲/▼ 导航
 │       ├── SearchBox.tsx            # 搜索输入框（300ms 防抖）
 │       ├── ShadowRootApp.tsx        # Shadow DOM 挂载入口

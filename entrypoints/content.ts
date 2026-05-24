@@ -135,9 +135,19 @@ export default defineContentScript({
     };
     window.addEventListener('keydown', onDebugKey);
 
+    // 用户滚动取消进行中的跳转
+    scrollDriver.onUserScroll(() => jumpController.cancelCurrent());
+
+    // Esc 键取消进行中的跳转
+    const onCancelJump = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') jumpController.cancelCurrent();
+    };
+    window.addEventListener('keydown', onCancelJump);
+
     window.addEventListener('beforeunload', () => {
       if (pollId !== undefined) clearInterval(pollId);
       window.removeEventListener('keydown', onDebugKey);
+      window.removeEventListener('keydown', onCancelJump);
       void cacheStore.flush();
       scanner.stop();
       scrollDriver.destroy();
