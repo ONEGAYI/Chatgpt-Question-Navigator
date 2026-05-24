@@ -154,12 +154,14 @@ export function PopupApp() {
   const handleLruCleanup = async () => {
     setOperating(true);
     try {
+      let succeeded = false;
       try {
         await sendMessage({ type: 'LRU_CLEANUP' });
+        succeeded = true;
       } catch {
-        // No content script running; best-effort local cleanup
+        // No content script running — LRU logic requires CacheStore state
       }
-      showToast('清理完成');
+      showToast(succeeded ? '清理完成' : '无活跃页面，无法执行清理');
       await refresh();
     } finally {
       setOperating(false);
