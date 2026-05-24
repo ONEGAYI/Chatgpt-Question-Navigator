@@ -67,7 +67,6 @@ export class JumpController {
     this.currentToken = token;
     this.runtimeStore.setJumpState({ status: 'jumping', targetId: target.localMessageId, attempt: 0 });
 
-    // 先尝试直接跳转
     const direct = await this.jumpToMounted(target, token);
     if (!this.isCurrent(token)) return false;
 
@@ -77,7 +76,6 @@ export class JumpController {
       return true;
     }
 
-    // 渐进式跳转
     const found = await this.jumpToCachedMessage(target, token);
     if (this.isCurrent(token) && found) {
       this.runtimeStore.setJumpState({ status: 'idle' });
@@ -101,21 +99,17 @@ export class JumpController {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       if (!this.isCurrent(token)) return false;
 
-      // 会话切换检测
       const { conversationId } = this.runtimeStore.getSnapshot();
       if (conversationId !== target.conversationId) return false;
 
-      // 检查目标是否已挂载（含 isConnected 守卫）
       const el = this.scanner.getElementByLocalId(target.localMessageId);
       if (el?.isConnected) {
         return await this.landOnTarget(el, target, token);
       }
 
-      // 扫描当前 DOM 状态
       const result = await this.scanner.rescan();
       if (!this.isCurrent(token)) return false;
 
-      // rescan 后重新计算 targetIndex（messages 列表可能因滚动发现新消息而变化）
       const targetIndex = this.runtimeStore.getSnapshot().messages.findIndex((m) => m.localMessageId === target.localMessageId);
       if (targetIndex < 0) {
         if (this.isCurrent(token)) {
@@ -124,7 +118,6 @@ export class JumpController {
         return false;
       }
 
-      // rescan 后再次检查是否已挂载
       if (result.mountedIds.has(target.localMessageId)) {
         const found = this.scanner.getElementByLocalId(target.localMessageId);
         if (found?.isConnected) {
@@ -132,11 +125,9 @@ export class JumpController {
         }
       }
 
-      // 更新尝试计数
       if (!this.isCurrent(token)) return false;
       this.runtimeStore.setJumpState({ status: 'jumping', targetId: target.localMessageId, attempt: attempt + 1 });
 
-      // 步进策略
       if (attempt === 0 && Number.isFinite(target.lastKnownScrollRatio)) {
         this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
       } else {
@@ -159,7 +150,6 @@ export class JumpController {
 
   private async landOnTarget(el: HTMLElement, target: CachedUserMessage, token: JumpToken): Promise<boolean> {
     if (!this.isCurrent(token)) return false;
-    // 使用 'auto' 行为：即时滚动，scroll metadata 立即可读
     this.scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: 'auto' });
     this.highlightMessage(el);
     this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());

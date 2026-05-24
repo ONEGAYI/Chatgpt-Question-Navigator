@@ -10,6 +10,12 @@ const SELECTORS = {
 const OBSERVED_ID_ATTRIBUTES = ['data-id', 'data-message-id'] as const;
 
 export class DomAdapter {
+  private scrollContainer: HTMLElement | null = null;
+
+  setScrollContainer(container: HTMLElement | null): void {
+    this.scrollContainer = container;
+  }
+
   findUserMessages(): HTMLElement[] {
     return Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.userMessage));
   }
@@ -31,12 +37,45 @@ export class DomAdapter {
   }
 
   findScrollContainer(): HTMLElement | null {
+    // Strategy 1: known CSS selectors
     const candidates = Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.scrollContainer));
-    return candidates.find((el) => el.scrollHeight > el.clientHeight) ?? null;
+    const found = candidates.find((el) => el.scrollHeight > el.clientHeight);
+    if (found) return found;
+
+    // Strategy 2: walk up from first user message, test actual scrollability
+    const firstMessage = document.querySelector<HTMLElement>(SELECTORS.userMessage);
+    if (firstMessage) {
+      let parent: HTMLElement | null = firstMessage.parentElement;
+      let scrollableAncestor: HTMLElement | null = null;
+      while (parent && parent !== document.documentElement) {
+        if (parent.scrollHeight > parent.clientHeight + 1) {
+          const prev = parent.scrollTop;
+          parent.scrollTop += 1;
+          if (parent.scrollTop > prev) {
+            parent.scrollTop = prev;
+            scrollableAncestor = parent;
+          }
+        }
+        parent = parent.parentElement;
+      }
+      if (scrollableAncestor) return scrollableAncestor;
+    }
+
+    // Strategy 3: document.scrollingElement if scrollable
+    const scrolling = document.scrollingElement as HTMLElement | null;
+    if (scrolling && scrolling.scrollHeight > scrolling.clientHeight) {
+      return scrolling;
+    }
+
+    return null;
   }
 
   isElementInViewport(el: HTMLElement): boolean {
     const rect = el.getBoundingClientRect();
+    if (this.scrollContainer) {
+      const containerRect = this.scrollContainer.getBoundingClientRect();
+      return rect.bottom >= containerRect.top && rect.top <= containerRect.bottom;
+    }
     return rect.bottom >= 0 && rect.top <= window.innerHeight;
   }
 

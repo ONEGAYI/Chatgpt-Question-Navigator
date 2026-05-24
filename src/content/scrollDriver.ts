@@ -13,7 +13,9 @@ export class ScrollDriver {
   constructor(private readonly domAdapter: DomAdapter) {}
 
   init(): void {
-    this.target = this.domAdapter.findScrollContainer() ?? document.scrollingElement as HTMLElement | null ?? window;
+    const container = this.domAdapter.findScrollContainer();
+    this.target = container ?? document.scrollingElement as HTMLElement | null ?? window;
+    this.domAdapter.setScrollContainer(this.target === window ? null : this.target as HTMLElement);
     this.bindListeners();
   }
 
