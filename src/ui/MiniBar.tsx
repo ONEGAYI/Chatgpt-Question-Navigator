@@ -58,46 +58,48 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
   };
 
   return (
-    <div className="cqn-minibar" role="navigation" aria-label="Mini 问题导航">
-      <button
-        className={`cqn-mini-nav${canPrev ? '' : ' is-disabled'}`}
-        type="button"
-        onClick={handlePrev}
-        aria-label="上一条问题"
-      >
-        ▲
-      </button>
+    <>
+      <div className="cqn-minibar" role="navigation" aria-label="Mini 问题导航">
+        <button
+          className={`cqn-mini-nav${canPrev ? '' : ' is-disabled'}`}
+          type="button"
+          onClick={handlePrev}
+          aria-label="上一条问题"
+        >
+          ▲
+        </button>
 
-      {visible.map(({ message, originalIndex }) => {
-        const isActive = message.localMessageId === activeMessageId;
-        const isMounted = mountedIds.has(message.localMessageId);
-        const stateClass = isActive ? 'is-active' : isMounted ? 'is-mounted' : 'is-cached';
+        {visible.map(({ message, originalIndex }) => {
+          const isActive = message.localMessageId === activeMessageId;
+          const isMounted = mountedIds.has(message.localMessageId);
+          const stateClass = isActive ? 'is-active' : isMounted ? 'is-mounted' : 'is-cached';
 
-        return (
-          <button
-            key={message.localMessageId}
-            className={`cqn-mini-mark ${stateClass}`}
-            type="button"
-            onClick={() => onJump(message)}
-            onMouseEnter={(e) => handleMarkHover(e, message, originalIndex)}
-            onMouseLeave={() => setHover(null)}
-            aria-label={`Q${originalIndex + 1}`}
-          />
-        );
-      })}
+          return (
+            <button
+              key={message.localMessageId}
+              className={`cqn-mini-mark ${stateClass}`}
+              type="button"
+              onClick={() => onJump(message)}
+              onMouseEnter={(e) => handleMarkHover(e, message, originalIndex)}
+              onMouseLeave={() => setHover(null)}
+              aria-label={`Q${originalIndex + 1}`}
+            />
+          );
+        })}
 
-      <button
-        className={`cqn-mini-nav${canNext ? '' : ' is-disabled'}`}
-        type="button"
-        onClick={handleNext}
-        aria-label="下一条问题"
-      >
-        ▼
-      </button>
+        <button
+          className={`cqn-mini-nav${canNext ? '' : ' is-disabled'}`}
+          type="button"
+          onClick={handleNext}
+          aria-label="下一条问题"
+        >
+          ▼
+        </button>
 
-      <button className="cqn-mini-expand" type="button" onClick={onExpand} aria-label="展开导航">
-        ☰
-      </button>
+        <button className="cqn-mini-expand" type="button" onClick={onExpand} aria-label="展开导航">
+          ☰
+        </button>
+      </div>
 
       {hover && (
         <span
@@ -115,6 +117,6 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
           {hover.message.textForSearch}
         </span>
       )}
-    </div>
+    </>
   );
 }
