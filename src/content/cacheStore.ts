@@ -5,9 +5,15 @@ import type {
   ScannedUserMessageCandidate,
   StorageMeta
 } from '../shared/types';
-import { mergeOrderedIds, orderMessagesByIds } from './orderList';
+import { mergeOrderedSegments, orderMessagesByIds } from './orderList';
+import type { OrderedIdSegment, ScanDirection, ScanSegmentKind } from './orderList';
 
 type StoredCandidate = Omit<ScannedUserMessageCandidate, 'element'>;
+export interface StoredCandidateSegment {
+  candidates: StoredCandidate[];
+  direction: ScanDirection;
+  kind: ScanSegmentKind;
+}
 
 const META_KEY = 'meta';
 const CACHE_PREFIX = 'conv:';
@@ -64,6 +70,14 @@ export class CacheStore {
   }
 
   async resolveScannedCandidates(conversationId: string, candidates: StoredCandidate[]): Promise<ResolveResult> {
+    return this.resolveScannedSegments(conversationId, [{
+      candidates,
+      direction: 'unknown',
+      kind: 'local-contiguous'
+    }]);
+  }
+
+  async resolveScannedSegments(conversationId: string, segments: StoredCandidateSegment[]): Promise<ResolveResult> {
     this.ensureCurrentCache(conversationId);
 
     const now = Date.now();
@@ -72,43 +86,54 @@ export class CacheStore {
     const usedExisting = new Set<string>();
     const resolvedMounted = new Set<string>();
     const resolvedCandidates: ResolveResult['resolvedCandidates'] = [];
+    const resolvedSegments: OrderedIdSegment[] = [];
     const newOrUpdated: CachedUserMessage[] = [];
     const nextMessagesById = new Map<string, CachedUserMessage>(existing.map((message) => [message.localMessageId, message]));
+    let candidateIndex = 0;
 
-    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-      const candidate = candidates[candidateIndex];
-      if (!candidate) continue;
-      const matched = this.matchCandidate(conversationId, candidate, existing, usedExisting);
-      const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
-      const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex);
+    for (const segment of segments) {
+      const segmentIds: string[] = [];
+      for (const candidate of segment.candidates) {
+        const matched = this.matchCandidate(conversationId, candidate, existing, usedExisting);
+        const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
+        const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex);
 
-      const next: CachedUserMessage = {
-        conversationId,
-        localMessageId,
-        role: 'user',
-        textForSearch: candidate.textForSearch,
-        preview: candidate.preview,
-        textHash: candidate.textHash,
-        occurrenceIndex,
-        firstSeenAt: matched?.firstSeenAt ?? now,
-        lastSeenAt: now,
-        lastKnownScrollTop: candidate.scrollTop,
-        lastKnownScrollRatio: candidate.scrollRatio,
-        orderKey: matched?.orderKey ?? candidate.absoluteTop
-      };
+        const next: CachedUserMessage = {
+          conversationId,
+          localMessageId,
+          role: 'user',
+          textForSearch: candidate.textForSearch,
+          preview: candidate.preview,
+          textHash: candidate.textHash,
+          occurrenceIndex,
+          firstSeenAt: matched?.firstSeenAt ?? now,
+          lastSeenAt: now,
+          lastKnownScrollTop: candidate.scrollTop,
+          lastKnownScrollRatio: candidate.scrollRatio,
+          orderKey: matched?.orderKey ?? candidate.absoluteTop
+        };
 
-      if (!matched || this.hasMeaningfulChange(matched, next)) {
-        newOrUpdated.push(next);
-        this.dirty = true;
+        if (!matched || this.hasMeaningfulChange(matched, next)) {
+          newOrUpdated.push(next);
+          this.dirty = true;
+        }
+
+        usedExisting.add(localMessageId);
+        resolvedMounted.add(localMessageId);
+        resolvedCandidates.push({ localMessageId, candidateIndex });
+        segmentIds.push(localMessageId);
+        nextMessagesById.set(localMessageId, next);
+        candidateIndex += 1;
       }
 
-      usedExisting.add(localMessageId);
-      resolvedMounted.add(localMessageId);
-      resolvedCandidates.push({ localMessageId, candidateIndex });
-      nextMessagesById.set(localMessageId, next);
+      resolvedSegments.push({
+        ids: segmentIds,
+        direction: segment.direction,
+        kind: segment.kind
+      });
     }
 
-    const orderedIds = mergeOrderedIds(existingOrderedIds, resolvedCandidates.map((candidate) => candidate.localMessageId));
+    const orderedIds = mergeOrderedSegments(existingOrderedIds, resolvedSegments);
     const allMessages = orderMessagesByIds(nextMessagesById, orderedIds);
     if (!arraysEqual(existingOrderedIds, orderedIds)) this.dirty = true;
 
@@ -122,6 +147,31 @@ export class CacheStore {
     if (this.dirty) this.scheduleSave();
 
     return { allMessages, resolvedMounted, resolvedCandidates, newOrUpdated };
+  }
+
+  updateMessageScrollMeta(localMessageId: string, scrollTop: number, scrollRatio: number): void {
+    if (!this.currentCache) return;
+    const now = Date.now();
+    const messages = this.currentCache.messages.map((message) => {
+      if (message.localMessageId !== localMessageId) return message;
+      return {
+        ...message,
+        lastSeenAt: now,
+        lastKnownScrollTop: scrollTop,
+        lastKnownScrollRatio: scrollRatio
+      };
+    });
+    const changed = messages.some((message, index) => message !== this.currentCache!.messages[index]);
+    if (!changed) return;
+
+    const messagesById = new Map<string, CachedUserMessage>(messages.map((message) => [message.localMessageId, message]));
+    this.currentCache = {
+      ...this.currentCache,
+      updatedAt: now,
+      messages: orderMessagesByIds(messagesById, this.currentCache.orderedIds)
+    };
+    this.dirty = true;
+    this.scheduleSave();
   }
 
   async migrateTempCache(tempId: string, realId: string): Promise<void> {
@@ -280,7 +330,7 @@ export class CacheStore {
   private normalizeCache(cache: ConversationCache): ConversationCache {
     const messagesById = new Map<string, CachedUserMessage>(cache.messages.map((message) => [message.localMessageId, message]));
     const storedOrderedIds = Array.isArray(cache.orderedIds) ? cache.orderedIds : [];
-    const orderedIds = mergeOrderedIds(
+    const orderedIds = appendMissingIds(
       storedOrderedIds.filter((id) => messagesById.has(id)),
       cache.messages.map((message) => message.localMessageId)
     );
@@ -295,4 +345,15 @@ export class CacheStore {
 
 function arraysEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function appendMissingIds(existingIds: string[], candidateIds: string[]): string[] {
+  const result = [...existingIds];
+  const known = new Set(result);
+  for (const id of candidateIds) {
+    if (known.has(id)) continue;
+    result.push(id);
+    known.add(id);
+  }
+  return result;
 }

@@ -51,12 +51,14 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
 
   const handlePrev = () => {
     if (!canPrev) return;
-    onJump(messages[activeIdx - 1]);
+    const previous = messages[activeIdx - 1];
+    if (previous) onJump(previous);
   };
 
   const handleNext = () => {
     if (!canNext) return;
-    onJump(messages[activeIdx + 1]);
+    const next = messages[activeIdx + 1];
+    if (next) onJump(next);
   };
 
   const handleMarkHover = (e: MouseEvent, message: CachedUserMessage, index: number) => {

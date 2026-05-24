@@ -1,31 +1,25 @@
+export type ScanDirection = 'up' | 'down' | 'unknown';
+export type ScanSegmentKind = 'local-contiguous' | 'detached-top' | 'detached-bottom';
+
+export interface OrderedIdSegment {
+  ids: string[];
+  direction: ScanDirection;
+  kind: ScanSegmentKind;
+}
+
 export function mergeOrderedIds(existingOrderedIds: string[], scanIds: string[]): string[] {
-  const result = unique(existingOrderedIds);
-  const known = new Set(result);
-  const scan = unique(scanIds);
-  const anchorIndexes = scan
-    .map((id, index) => ({ id, index }))
-    .filter(({ id }) => known.has(id));
+  return mergeOrderedSegments(existingOrderedIds, [{
+    ids: scanIds,
+    direction: 'unknown',
+    kind: 'local-contiguous'
+  }]);
+}
 
-  if (anchorIndexes.length === 0) {
-    for (const id of scan) {
-      if (!known.has(id)) {
-        result.push(id);
-        known.add(id);
-      }
-    }
-    return result;
+export function mergeOrderedSegments(existingOrderedIds: string[], segments: OrderedIdSegment[]): string[] {
+  let result = unique(existingOrderedIds);
+  for (const segment of segments) {
+    result = mergeOrderedSegment(result, segment);
   }
-
-  let previousAnchor: string | null = null;
-  let segmentStart = 0;
-
-  for (const anchor of anchorIndexes) {
-    insertSegment(result, known, scan.slice(segmentStart, anchor.index), previousAnchor, anchor.id);
-    previousAnchor = anchor.id;
-    segmentStart = anchor.index + 1;
-  }
-
-  insertSegment(result, known, scan.slice(segmentStart), previousAnchor, null);
   return result;
 }
 
@@ -46,6 +40,57 @@ export function orderMessagesByIds<T extends { localMessageId: string }>(message
     emitted.add(id);
   }
 
+  return result;
+}
+
+function mergeOrderedSegment(existingOrderedIds: string[], segment: OrderedIdSegment): string[] {
+  const ids = unique(segment.ids);
+  if (ids.length === 0) return existingOrderedIds;
+  if (segment.kind === 'local-contiguous') return mergeContiguousSegment(existingOrderedIds, ids, segment.direction);
+  return mergeDetachedSegment(existingOrderedIds, ids, segment.direction);
+}
+
+function mergeContiguousSegment(existingOrderedIds: string[], segmentIds: string[], direction: ScanDirection): string[] {
+  const originalIndexById = new Map(existingOrderedIds.map((id, index) => [id, index]));
+  const knownIndexes = segmentIds
+    .map((id) => originalIndexById.get(id))
+    .filter((index): index is number => index !== undefined);
+  const result = existingOrderedIds.filter((id) => !segmentIds.includes(id));
+
+  let insertAt = insertionIndexForDirection(result, direction);
+  if (knownIndexes.length > 0) {
+    const firstKnownIndex = Math.min(...knownIndexes);
+    insertAt = result.filter((id) => (originalIndexById.get(id) ?? Number.POSITIVE_INFINITY) < firstKnownIndex).length;
+  }
+
+  result.splice(insertAt, 0, ...segmentIds);
+  return result;
+}
+
+function mergeDetachedSegment(existingOrderedIds: string[], segmentIds: string[], direction: ScanDirection): string[] {
+  const result = unique(existingOrderedIds);
+  const known = new Set(result);
+  const scan = unique(segmentIds);
+  const anchorIndexes = scan
+    .map((id, index) => ({ id, index }))
+    .filter(({ id }) => known.has(id));
+
+  if (anchorIndexes.length === 0) {
+    const insertAt = insertionIndexForDirection(result, direction);
+    result.splice(insertAt, 0, ...scan.filter((id) => !known.has(id)));
+    return result;
+  }
+
+  let previousAnchor: string | null = null;
+  let segmentStart = 0;
+
+  for (const anchor of anchorIndexes) {
+    insertSegment(result, known, scan.slice(segmentStart, anchor.index), previousAnchor, anchor.id);
+    previousAnchor = anchor.id;
+    segmentStart = anchor.index + 1;
+  }
+
+  insertSegment(result, known, scan.slice(segmentStart), previousAnchor, null);
   return result;
 }
 
@@ -70,6 +115,11 @@ function insertSegment(
 
   result.splice(insertAt, 0, ...newIds);
   for (const id of newIds) known.add(id);
+}
+
+function insertionIndexForDirection(result: string[], direction: ScanDirection): number {
+  if (direction === 'up') return 0;
+  return result.length;
 }
 
 function unique(ids: string[]): string[] {
