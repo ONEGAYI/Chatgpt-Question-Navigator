@@ -14,6 +14,7 @@ chatgpt-question-navigator/
 │   │   ├── domAdapter.ts           # ChatGPT DOM 结构查询抽象，选择器集中定义
 │   │   ├── jumpController.ts       # 跳转控制：已挂载消息直接跳转 + 临时高亮
 │   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
+│   │   ├── orderList.ts            # 有序 ID 分段合并算法（contiguous/detached 段合并 + 方向推断）
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
 │   │   ├── scrollDriver.ts         # 滚动基础设施：多源 root 检测 + 评分验证 + 操作结果 + viewport + 方向捕获 + 诊断
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
@@ -41,11 +42,13 @@ chatgpt-question-navigator/
 │   └── icon.png                     # 扩展图标（16/32/48/128 复用）
 ├── scripts/
 │   ├── copy-build.mjs               # 构建后拷贝产物到 %TEMP% 统一加载路径
-│   └── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
+│   ├── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
+│   └── order-list-regression.test.mjs  # orderList 分段合并回归测试（node:test）
 ├── .gitignore
 ├── CLAUDE.md                        # Claude Code 项目指引
 ├── README.md                        # 用户文档：安装、构建、加载、隐私说明
 ├── package.json
+├── pnpm-workspace.yaml              # pnpm workspace 配置
 ├── tsconfig.json                    # 继承 .wxt/tsconfig.json，strict + Preact JSX
 ├── web-ext.config.ts                # WXT dev 浏览器启动配置：持久化 Edge profile
 └── wxt.config.ts                    # WXT 配置：manifest、权限、图标
