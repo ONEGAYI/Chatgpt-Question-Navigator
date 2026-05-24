@@ -37,6 +37,7 @@ export interface ScannedUserMessageCandidate {
   scrollTop: number;
   absoluteTop: number;
   element: HTMLElement;
+  turnKey: string | null;
 }
 
 export interface ResolveResult {
@@ -93,10 +94,29 @@ export interface AutoCollectProgress {
   foundCount: number;
   round: number;
   errorMessage?: string;
+  totalTurns?: number;
+  hydratedCount?: number;
+  unhydratedCount?: number;
 }
 
 export interface AutoCollectIntent {
   conversationId: string;
   url: string;
   requestedAt: number;
+}
+
+// --- TurnFrame types ---
+
+export interface TurnFrame {
+  turnKey: string;
+  turnIndex: number;
+  role: 'user' | 'assistant' | 'unknown';
+  hydrated: boolean;
+  observedDomMessageId: string | null;
+  textHash: string | null;
+  preview: string | null;
+  textForSearch: string | null;
+  lastKnownScrollTop: number;
+  lastKnownScrollRatio: number;
+  lastHydratedAt: number | null;
 }

@@ -105,7 +105,8 @@ export class MessageScanner {
         scrollRatio: this.scrollDriver.getScrollRatio(),
         scrollTop,
         absoluteTop: this.scrollDriver.getAbsoluteTop(element),
-        element
+        element,
+        turnKey: null,
       });
     }
 
