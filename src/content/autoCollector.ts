@@ -103,6 +103,7 @@ export class AutoCollector {
 
       const metrics = this.scrollDriver.getMetrics();
       this.setPhase('collecting');
+      this.runtimeStore.setMessages([]);
       if (metrics.maxScrollTop <= 8) {
         const batch = await this.extractCurrentBatch(0);
         await this.finalize([batch], conversationId);
@@ -130,6 +131,7 @@ export class AutoCollector {
         batches.push(batch);
         this.foundCount = seenKeys.size;
         this.round++;
+        this.runtimeStore.setMessages(this.mergeBatches(batches, conversationId));
         this.emitProgress();
 
         if (newCount === 0) {
