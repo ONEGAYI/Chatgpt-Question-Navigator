@@ -7,14 +7,14 @@ import { Sidebar } from './Sidebar';
 
 export async function createShadowRootApp(
   ctx: ContentScriptContext,
-  deps: { runtimeStore: RuntimeStore; jumpController: JumpController }
+  deps: { runtimeStore: RuntimeStore; jumpController: JumpController; onClearCurrentSession: () => Promise<void> }
 ): Promise<void> {
   const ui = await createShadowRootUi(ctx, {
     name: 'chatgpt-navigator',
     position: 'overlay',
     anchor: 'body',
     onMount(container: HTMLElement) {
-      render(<Sidebar runtimeStore={deps.runtimeStore} jumpController={deps.jumpController} />, container);
+      render(<Sidebar runtimeStore={deps.runtimeStore} jumpController={deps.jumpController} onClearCurrentSession={deps.onClearCurrentSession} />, container);
       return () => render(null, container);
     },
     onRemove(mounted) {

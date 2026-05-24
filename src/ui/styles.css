@@ -59,6 +59,16 @@
   color: var(--cqn-text-primary);
 }
 
+.cqn-collapse.is-confirming {
+  background: #dc2626;
+  color: #fff;
+}
+
+.cqn-collapse.is-confirming:hover {
+  background: #b91c1c;
+  color: #fff;
+}
+
 .cqn-search {
   display: flex;
   align-items: center;
@@ -89,6 +99,13 @@
 .cqn-status {
   padding: 0 10px 8px;
   font-size: 12px;
+}
+
+.cqn-clearing-notice {
+  padding: 16px 10px;
+  color: var(--cqn-text-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 .cqn-list {

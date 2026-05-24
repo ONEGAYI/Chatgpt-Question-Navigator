@@ -21,6 +21,22 @@ export default defineContentScript({
     const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver, runtimeStore);
     const jumpController = new JumpController(scanner, cacheStore, scrollDriver, runtimeStore);
 
+    const clearCurrentSession = async (): Promise<void> => {
+      const { conversationId } = runtimeStore.getSnapshot();
+      if (!conversationId) return;
+      scanner.stop();
+      await cacheStore.flush();
+      try {
+        await cacheStore.clearConversation(conversationId);
+      } catch {
+        scanner.start();
+        return;
+      }
+      runtimeStore.setMessages([]);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      scanner.start();
+    };
+
     urlWatcher.onConversationChange(async (id, previousId) => {
       if (!id) return;
 
@@ -75,6 +91,6 @@ export default defineContentScript({
       }
     });
 
-    await createShadowRootApp(ctx, { runtimeStore, jumpController });
+    await createShadowRootApp(ctx, { runtimeStore, jumpController, onClearCurrentSession: clearCurrentSession });
   }
 });
