@@ -170,7 +170,12 @@ export class MessageScanner {
     if (this.scrollTimer !== null) return;
     this.scrollTimer = window.setTimeout(() => {
       this.scrollTimer = null;
+      const snapshot = this.runtimeStore.getSnapshot();
+      const userIds = new Set(
+        snapshot.messages.filter(m => m.role === 'user').map(m => m.localMessageId)
+      );
       for (const localId of this.mountedIds) {
+        if (!userIds.has(localId)) continue;
         const el = this.elementById.get(localId);
         if (el && this.scrollDriver.isElementInViewport(el)) {
           this.updateScrollMeta(localId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
@@ -252,7 +257,13 @@ export class MessageScanner {
       this.runtimeStore.setActiveMessageId(this.computeActiveMessageId());
     }, { threshold: [0, 0.25, 0.5, 1] });
 
-    this.elementById.forEach((element) => this.intersectionObserver?.observe(element));
+    const snapshot = this.runtimeStore.getSnapshot();
+    const userIds = new Set(
+      snapshot.messages.filter(m => m.role === 'user').map(m => m.localMessageId)
+    );
+    this.elementById.forEach((element, id) => {
+      if (userIds.has(id)) this.intersectionObserver?.observe(element);
+    });
   }
 
   private registerAnchorTurnElements(conversationId: string, allMessages: CachedMessage[]): void {
@@ -269,19 +280,25 @@ export class MessageScanner {
       const cached = messageById.get(localId);
       if (!cached || cached.role !== 'assistant') continue;
 
-      if (!this.elementById.has(localId) && turnEl.isConnected) {
-        // 优先注册 assistant 消息容器（更精确的滚动目标），退回 turn section
-        const targetEl = turnEl.querySelector<HTMLElement>('[data-message-author-role="assistant"]') ?? turnEl;
-        this.elementById.set(localId, targetEl);
-        this.mountedIds.add(localId);
+      if (!this.elementById.has(localId)) {
+        const assistantEl = turnEl.querySelector<HTMLElement>('[data-message-author-role="assistant"]');
+        const targetEl = assistantEl ?? turnEl;
+        if (targetEl.isConnected) {
+          this.elementById.set(localId, targetEl);
+          this.mountedIds.add(localId);
+        }
       }
     }
   }
 
   private computeActiveMessageId(): string | null {
+    const snapshot = this.runtimeStore.getSnapshot();
     const viewport = this.scrollDriver.getViewportRect();
+    const messageById = new Map(snapshot.messages.map((m) => [m.localMessageId, m]));
+    const isUser = (id: string): boolean => messageById.get(id)?.role === 'user';
 
     const entries = Array.from(this.elementById.entries())
+      .filter(([id]) => isUser(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.bottom >= viewport.top && rect.top <= viewport.bottom);
 
@@ -291,6 +308,7 @@ export class MessageScanner {
     if (visibleBelowTop) return visibleBelowTop.id;
 
     const nearestAbove = Array.from(this.elementById.entries())
+      .filter(([id]) => isUser(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.top < viewport.top)
       .sort((a, b) => b.rect.top - a.rect.top)[0];

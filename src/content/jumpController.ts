@@ -120,7 +120,7 @@ export class JumpController {
       }
 
       const el = this.scanner.getElementByLocalId(target.localMessageId);
-      if (el?.isConnected) {
+      if (el?.isConnected && this.scrollDriver.isElementInViewport(el)) {
         return await this.landOnTarget(el, target, token, true);
       }
 
@@ -137,7 +137,7 @@ export class JumpController {
 
       if (result.mountedIds.has(target.localMessageId)) {
         const found = this.scanner.getElementByLocalId(target.localMessageId);
-        if (found?.isConnected) {
+        if (found?.isConnected && this.scrollDriver.isElementInViewport(found)) {
           return await this.landOnTarget(found, target, token, true);
         }
       }
