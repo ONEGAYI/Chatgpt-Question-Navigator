@@ -10,6 +10,8 @@ const SELECTORS = {
 const OBSERVED_ID_ATTRIBUTES = ['data-id', 'data-message-id'] as const;
 
 export class DomAdapter {
+  static readonly TURN_SELECTOR = SELECTORS.turnSkeleton;
+
   findUserMessages(): HTMLElement[] {
     return Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.userMessage));
   }

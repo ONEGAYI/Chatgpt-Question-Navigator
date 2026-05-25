@@ -2,7 +2,7 @@ import type { CachedMessage, ResolveResult, ScanResult, ScannedMessageCandidate,
 import { hashText } from '../shared/hash';
 import { toAiPreview, toAiSearchText, toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
-import type { DomAdapter } from './domAdapter';
+import { DomAdapter } from './domAdapter';
 import type { ScanDirection, ScanSegmentKind } from './orderList';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
@@ -31,6 +31,7 @@ export class MessageScanner {
   private lastScanScrollTop: number | null = null;
   private lastObservedScrollTop: number | null = null;
   private lastObservedDirection: ScanDirection = 'unknown';
+  private rescanGeneration = 0;
 
   constructor(
     private readonly domAdapter: DomAdapter,
@@ -64,6 +65,14 @@ export class MessageScanner {
     this.intersectionObserver?.disconnect();
     this.cleanupScroll?.();
     this.cleanupUserScroll?.();
+    if (this.mutationTimer !== null) {
+      window.clearTimeout(this.mutationTimer);
+      this.mutationTimer = null;
+    }
+    if (this.scrollTimer !== null) {
+      window.clearTimeout(this.scrollTimer);
+      this.scrollTimer = null;
+    }
     this.elementById.clear();
     this.mountedIds.clear();
     this.lastScanScrollTop = null;
@@ -72,6 +81,8 @@ export class MessageScanner {
   }
 
   async rescan(): Promise<ScanResult> {
+    this.rescanGeneration += 1;
+    const generation = this.rescanGeneration;
     this.scrollDriver.triggerRootCheck();
 
     const domConversationId = this.domAdapter.extractConversationId();
@@ -179,6 +190,8 @@ export class MessageScanner {
     );
     this.lastScanScrollTop = scrollTop;
 
+    if (generation !== this.rescanGeneration) return { mountedIds: new Set(), activeMessageId: null, visibleRange: null, newOrUpdated: [] };
+
     this.rebuildMountedMaps(result, sortedCandidates);
 
     // 注册 AI turn 锚点的 DOM 元素（不参与 resolveScannedSegments 候选流程）
@@ -216,11 +229,10 @@ export class MessageScanner {
   }
 
   private handleMutations(records: MutationRecord[]): void {
-    const TURN_SELECTOR = 'section[data-testid^="conversation-turn-"]';
     const hasNewTurn = records.some((record) =>
       Array.from(record.addedNodes).some((node) =>
         node instanceof HTMLElement
-        && (node.matches?.(TURN_SELECTOR) || node.querySelector?.(TURN_SELECTOR))
+        && (node.matches?.(DomAdapter.TURN_SELECTOR) || node.querySelector?.(DomAdapter.TURN_SELECTOR))
       )
     );
 
