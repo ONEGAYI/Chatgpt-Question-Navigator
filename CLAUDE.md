@@ -128,12 +128,7 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 2. **更新文档**：CHANGELOG.md、CLAUDE.md、Tree.md
 3. **提交文档变更**
 4. **执行发布**：`pnpm release` — 自动完成 pull → push → build → zip，输出产物路径
-5. **创建 Release**：`gh release create v{version} .output/chatgpt-question-navigator-{version}-chrome.zip --title "v{version}" --notes "详见 CHANGELOG"`
-
-### CHANGELOG 编写规范
-
-- 版本标题与第一个 `###` 之间插入 **版本总结**（1-2 句话概括本版本核心变更）
-- 底部 `<!-- 变更链接 -->`（Grep 定位）追加 compare 链接，格式：`[版本号]: https://github.com/ONEGAYI/Chatgpt-Question-Navigator/compare/v上一版本...v本版本`（首个版本使用 `/commits/v本版本`）
+5. **创建 Release**：`gh release create v{version} .output/chatgpt-question-navigator-{version}-chrome.zip --title "v{version}" --notes "..."`（notes 包含该版本完整 CHANGELOG 内容）
 
 ## 文件树
 
