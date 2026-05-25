@@ -1,7 +1,7 @@
 export interface CachedUserMessage {
   conversationId: string;
   localMessageId: string;
-  role: 'user';
+  role: 'user' | 'assistant';  // TODO(#12): CachedUserMessage → CachedMessage
   textForSearch: string;
   preview: string;
   textHash: string;

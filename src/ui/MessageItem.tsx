@@ -7,6 +7,7 @@ interface MessageItemProps {
   index: number;
   active: boolean;
   mounted: boolean;
+  isJumping?: boolean;
   searchQuery: string;
   onClick: (message: CachedUserMessage) => void;
   onHoverStart?: (message: CachedUserMessage, rect: DOMRect) => void;
@@ -14,7 +15,7 @@ interface MessageItemProps {
 }
 
 function MessageItemComponent({
-  message, index, active, mounted, searchQuery,
+  message, index, active, mounted, isJumping, searchQuery,
   onClick, onHoverStart, onHoverEnd,
 }: MessageItemProps) {
   const parts = splitByQuery(message.preview, searchQuery);
@@ -28,7 +29,7 @@ function MessageItemComponent({
 
   return (
     <button
-      className={`cqn-item${active ? ' is-active' : ''}`}
+      className={`cqn-item${active ? ' is-active' : ''}${isJumping ? ' is-jumping' : ''}`}
       type="button"
       onClick={() => onClick(message)}
       onMouseEnter={handleMouseEnter}
@@ -39,7 +40,9 @@ function MessageItemComponent({
         <span className="cqn-item-preview">
           {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
         </span>
-        <span className="cqn-item-meta">{mounted ? '● 当前可跳转' : '○ 已缓存'}</span>
+        <span className="cqn-item-meta">
+          {isJumping ? '⟳ 跳转中…' : mounted ? '● 当前可跳转' : '○ 已缓存'}
+        </span>
       </span>
     </button>
   );

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AutoCollector } from '../content/autoCollector';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
 import type { AutoCollectPhase, CachedUserMessage, RuntimeState } from '../shared/types';
+import { JumpToast } from './JumpToast';
 import { MessageItem } from './MessageItem';
 import { MiniBar } from './MiniBar';
 import { SearchBox } from './SearchBox';
@@ -62,10 +63,16 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
   const [hover, setHover] = useState<HoverState | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const confirmTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => { if (confirmTimerRef.current !== undefined) clearTimeout(confirmTimerRef.current); }, []);
 
   const collectPhase = snapshot.autoCollectProgress?.phase;
 
-  useEffect(() => runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot())), [runtimeStore]);
+  useEffect(() => {
+    const unsubscribe = runtimeStore.subscribe(() => setSnapshot(runtimeStore.getSnapshot()));
+    return unsubscribe;
+  }, [runtimeStore]);
 
   useEffect(() => {
     chrome.storage.local.get(MODE_STORAGE_KEY, (result) => {
@@ -87,21 +94,24 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
+  const userMessages = useMemo(() => snapshot.messages.filter((m) => m.role === 'user'), [snapshot.messages]);
   const messages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return snapshot.messages;
-    return snapshot.messages.filter((message) => message.textForSearch.toLowerCase().includes(query));
-  }, [snapshot.messages, searchQuery]);
+    if (!query) return userMessages;
+    return userMessages.filter((message) => message.textForSearch.toLowerCase().includes(query));
+  }, [userMessages, searchQuery]);
 
   const handleJump = (target: CachedUserMessage) => void jumpController.jumpToMessage(target);
 
   const clearHover = useCallback(() => setHover(null), []);
 
+  const handleDismissJump = useCallback(() => jumpController.cancelCurrent(), [jumpController]);
+
   const handleClearClick = useCallback(async () => {
     if (clearing) return;
     if (!confirmClear) {
       setConfirmClear(true);
-      window.setTimeout(() => setConfirmClear(false), 2000);
+      confirmTimerRef.current = window.setTimeout(() => { confirmTimerRef.current = undefined; setConfirmClear(false); }, 2000);
       return;
     }
     setClearing(true);
@@ -136,12 +146,13 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return (
       <>
         <MiniBar
-          messages={snapshot.messages}
+          messages={userMessages}
           activeMessageId={snapshot.activeMessageId}
           mountedIds={snapshot.mountedIds}
           onJump={handleJump}
           onExpand={() => handleModeChange('expanded')}
         />
+        <JumpToast jumpState={snapshot.jumpState} onDismiss={handleDismissJump} />
       </>
     );
   }
@@ -212,7 +223,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
 
         {!clearing && (
           <div className="cqn-status">
-            {getStatusText(collectPhase, snapshot.autoCollectProgress, snapshot.messages.length)}
+            {getStatusText(collectPhase, snapshot.autoCollectProgress, userMessages.length)}
           </div>
         )}
 
@@ -229,6 +240,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
                 index={index}
                 active={snapshot.activeMessageId === message.localMessageId}
                 mounted={snapshot.mountedIds.has(message.localMessageId)}
+                isJumping={snapshot.jumpState.status === 'jumping' && snapshot.jumpState.targetId === message.localMessageId}
                 searchQuery={searchQuery}
                 onClick={handleJump}
                 onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
@@ -237,6 +249,8 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
             ))}
           </nav>
         )}
+
+        <JumpToast jumpState={snapshot.jumpState} onDismiss={handleDismissJump} />
       </aside>
 
       {hover && (

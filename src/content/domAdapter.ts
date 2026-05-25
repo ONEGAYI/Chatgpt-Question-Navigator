@@ -42,6 +42,10 @@ export class DomAdapter {
     return Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.turnSkeleton));
   }
 
+  findTurnElements(): HTMLElement[] {
+    return this.findTurnSkeletons();
+  }
+
   extractTurnKey(el: HTMLElement): string | null {
     const testId = el.getAttribute('data-testid');
     if (!testId?.startsWith('conversation-turn-')) return null;
