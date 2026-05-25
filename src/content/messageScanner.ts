@@ -1,4 +1,4 @@
-import type { CachedMessage, ResolveResult, ScanResult, ScannedUserMessageCandidate, VisibleRange } from '../shared/types';
+import type { CachedMessage, ResolveResult, ScanResult, ScannedMessageCandidate, VisibleRange } from '../shared/types';
 import { hashText } from '../shared/hash';
 import { toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
@@ -13,7 +13,7 @@ const SCROLL_THROTTLE_MS = 300;
 const MIN_SEGMENT_GAP_PX = 320;
 
 interface ScannedCandidateSegment {
-  candidates: ScannedUserMessageCandidate[];
+  candidates: ScannedMessageCandidate[];
   direction: ScanDirection;
   kind: ScanSegmentKind;
 }
@@ -86,28 +86,70 @@ export class MessageScanner {
       this.runtimeStore.setMessages(cache?.messages ?? []);
     }
 
-    const elements = this.domAdapter.findUserMessages();
-    const candidates: ScannedUserMessageCandidate[] = [];
+    const turnElements = this.domAdapter.findTurnElements();
+    const candidates: ScannedMessageCandidate[] = [];
     const scrollTop = this.scrollDriver.getScrollTop();
     const scanDirection = this.getScanDirection(scrollTop);
 
-    for (let index = 0; index < elements.length; index += 1) {
-      const element = elements[index];
-      if (!element) continue;
-      const text = this.domAdapter.extractText(element);
-      if (!text) continue;
-      candidates.push({
-        observedDomMessageId: this.domAdapter.extractObservedId(element),
-        text,
-        textHash: await hashText(text),
-        preview: toPreview(text),
-        textForSearch: toSearchText(text),
-        scrollRatio: this.scrollDriver.getScrollRatio(),
-        scrollTop,
-        absoluteTop: this.scrollDriver.getAbsoluteTop(element),
-        element,
-        turnKey: this.domAdapter.findTurnKeyForElement(element),
-      });
+    for (let index = 0; index < turnElements.length; index += 1) {
+      const turnEl = turnElements[index];
+      if (!turnEl) continue;
+
+      const turnKey = this.domAdapter.extractTurnKey(turnEl);
+      if (!turnKey) continue;
+
+      const turnIndex = this.domAdapter.extractTurnIndex(turnKey);
+      if (turnIndex < 0) continue;
+
+      const role = this.domAdapter.extractTurnRole(turnEl);
+      if (role === 'unknown') continue;
+
+      const scrollRatio = this.scrollDriver.getScrollRatio();
+      const absoluteTop = this.scrollDriver.getAbsoluteTop(turnEl);
+
+      if (role === 'user') {
+        // user: 使用 userEl 作为 element，保留现有 activeMessageId / 高亮 / scroll meta 行为
+        const userEl = this.domAdapter.findRoleElementInTurn(turnEl, 'user');
+        if (!userEl) continue;
+        const text = this.domAdapter.extractText(userEl);
+        if (!text) continue;
+
+        candidates.push({
+          observedDomMessageId: this.domAdapter.extractObservedId(userEl),
+          text,
+          textHash: await hashText(text),
+          preview: toPreview(text),
+          textForSearch: toSearchText(text),
+          scrollRatio,
+          scrollTop,
+          absoluteTop,
+          element: userEl,
+          turnKey,
+          role: 'user',
+          turnIndex,
+        });
+      } else {
+        // assistant P0: 只创建 anchor，不写流式文本
+        // textHash 使用 turnKey 派生的稳定 hash，不随流式输出变化
+        const textHash = await hashText(`assistant:${turnKey}`);
+
+        candidates.push({
+          observedDomMessageId: null,
+          text: '',
+          textHash,
+          preview: '',
+          textForSearch: '',
+          scrollRatio,
+          scrollTop,
+          absoluteTop,
+          // assistant 的 element 使用 turn 容器本身（不是内部 markdown 节点），
+          // 因为 turn 元素始终存在且位置稳定，覆盖整个 AI 回复区域
+          element: turnEl,
+          turnKey,
+          role: 'assistant',
+          turnIndex,
+        });
+      }
     }
 
     const candidateSegments = this.createCandidateSegments(candidates, scanDirection);
@@ -180,7 +222,7 @@ export class MessageScanner {
     }, SCROLL_THROTTLE_MS);
   }
 
-  private rebuildMountedMaps(result: ResolveResult, candidates: ScannedUserMessageCandidate[]): void {
+  private rebuildMountedMaps(result: ResolveResult, candidates: ScannedMessageCandidate[]): void {
     this.elementById.clear();
     this.mountedIds = new Set(result.resolvedMounted);
 
@@ -191,15 +233,15 @@ export class MessageScanner {
   }
 
   private createCandidateSegments(
-    candidates: ScannedUserMessageCandidate[],
+    candidates: ScannedMessageCandidate[],
     direction: ScanDirection
   ): ScannedCandidateSegment[] {
     const sorted = [...candidates].sort((a, b) => a.absoluteTop - b.absoluteTop);
     if (sorted.length === 0) return [];
 
     const threshold = Math.max(MIN_SEGMENT_GAP_PX, this.scrollDriver.getClientHeight() * 0.8);
-    const chunks: ScannedUserMessageCandidate[][] = [];
-    let current: ScannedUserMessageCandidate[] = [];
+    const chunks: ScannedMessageCandidate[][] = [];
+    let current: ScannedMessageCandidate[] = [];
 
     for (const candidate of sorted) {
       const previous = current[current.length - 1];

@@ -63,6 +63,16 @@ export class DomAdapter {
     return 'unknown';
   }
 
+  findRoleElementInTurn(turnEl: HTMLElement, role: 'user' | 'assistant'): HTMLElement | null {
+    return turnEl.querySelector<HTMLElement>(`[data-message-author-role="${role}"]`);
+  }
+
+  extractTurnText(turnEl: HTMLElement, role: 'user' | 'assistant'): string {
+    const roleEl = this.findRoleElementInTurn(turnEl, role);
+    if (!roleEl) return '';
+    return this.extractText(roleEl);
+  }
+
   findTurnKeyForElement(el: HTMLElement): string | null {
     const turnEl = el.closest<HTMLElement>(SELECTORS.turnSkeleton);
     if (!turnEl) return null;

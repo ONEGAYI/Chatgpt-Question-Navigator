@@ -148,3 +148,31 @@ function unique(ids: string[]): string[] {
   }
   return result;
 }
+
+export function hasFiniteTurnIndex<T extends { turnIndex?: number }>(m: T): m is T & { turnIndex: number } {
+  return typeof m.turnIndex === 'number' && Number.isFinite(m.turnIndex);
+}
+
+/**
+ * 对有 turnIndex 的消息按 turnIndex 升序排序，缺失 turnIndex 的保持原相对顺序放末尾。
+ * 排序后重新分配连续 orderKey（0, 1, 2, ...）。
+ */
+export function reorderAndRekeyByTurnIndex<T extends {
+  localMessageId: string;
+  orderKey: number;
+  turnIndex?: number;
+}>(messages: T[]): T[] {
+  if (messages.length === 0) return messages;
+  if (!messages.some(hasFiniteTurnIndex)) return messages;
+
+  const withIndex = messages.filter(hasFiniteTurnIndex)
+    .sort((a, b) => a.turnIndex - b.turnIndex);
+  const withoutIndex = messages.filter((m) => !hasFiniteTurnIndex(m));
+
+  const sorted = [...withIndex, ...withoutIndex];
+
+  return sorted.map((m, index) => ({
+    ...m,
+    orderKey: index,
+  }));
+}

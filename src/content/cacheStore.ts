@@ -5,7 +5,7 @@ import type {
   ScannedUserMessageCandidate,
   StorageMeta
 } from '../shared/types';
-import { inferDirectionFromScrollAnchor, mergeOrderedSegments, orderMessagesByIds } from './orderList';
+import { inferDirectionFromScrollAnchor, mergeOrderedSegments, orderMessagesByIds, reorderAndRekeyByTurnIndex } from './orderList';
 import type { OrderedIdSegment, ScanDirection, ScanSegmentKind } from './orderList';
 
 type StoredCandidate = Omit<ScannedUserMessageCandidate, 'element'>;
@@ -39,7 +39,19 @@ export class CacheStore {
     const cache = result[key] as ConversationCache | undefined;
     const normalized = cache ? this.normalizeCache(cache) : null;
     this.currentCache = normalized ?? this.createEmptyCache(id);
-    this.dirty = false;
+
+    if (cache && normalized && (
+      !arraysEqual(cache.orderedIds ?? [], normalized.orderedIds)
+      || cache.messages.some((raw, i) => {
+        const norm = normalized.messages[i];
+        return !norm || raw.orderKey !== norm.orderKey || raw.turnKey !== norm.turnKey || raw.turnIndex !== norm.turnIndex;
+      })
+    )) {
+      this.dirty = true;
+      this.scheduleSave();
+    } else {
+      this.dirty = false;
+    }
     return normalized;
   }
 
@@ -120,13 +132,19 @@ export class CacheStore {
         const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
         const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex, candidate.turnKey);
 
+        // P0 assistant placeholder 保护：如果已有缓存有文本，不被空 placeholder 覆盖
+        const isPlaceholder =
+          candidate.role === 'assistant'
+          && candidate.preview === ''
+          && candidate.textForSearch === '';
+
         const next: CachedMessage = {
           conversationId,
           localMessageId,
-          role: 'user',
-          textForSearch: candidate.textForSearch,
-          preview: candidate.preview,
-          textHash: candidate.textHash,
+          role: candidate.role,
+          textHash: isPlaceholder && matched ? matched.textHash : candidate.textHash,
+          preview: isPlaceholder && matched ? matched.preview : candidate.preview,
+          textForSearch: isPlaceholder && matched ? matched.textForSearch : candidate.textForSearch,
           occurrenceIndex,
           firstSeenAt: matched?.firstSeenAt ?? now,
           lastSeenAt: now,
@@ -134,7 +152,9 @@ export class CacheStore {
           lastKnownScrollRatio: candidate.scrollRatio,
           orderKey: matched?.orderKey ?? (this.currentCache?.orderMode === 'canonical'
             ? maxExistingOrderKey + 1 + candidateIndex
-            : candidate.absoluteTop)
+            : candidate.absoluteTop),
+          ...(candidate.turnKey ? { turnKey: candidate.turnKey } : {}),
+          ...(candidate.turnIndex >= 0 ? { turnIndex: candidate.turnIndex } : {}),
         };
 
         if (!matched || this.hasMeaningfulChange(matched, next)) {
@@ -180,20 +200,44 @@ export class CacheStore {
       orderedIds = mergeOrderedSegments(existingOrderedIds, resolvedSegments);
     }
 
-    const allMessages = orderMessagesByIds(nextMessagesById, orderedIds);
-    if (!arraysEqual(existingOrderedIds, orderedIds)) this.dirty = true;
+    let allMessages = orderMessagesByIds(nextMessagesById, orderedIds);
+
+    // 如果有 turnIndex，按 turnIndex 排序并重算 orderKey
+    const reordered = reorderAndRekeyByTurnIndex(allMessages);
+    allMessages = reordered;
+
+    const newOrderedIds = allMessages.map((m) => m.localMessageId);
+
+    // 检测 orderedIds 变化 或 orderKey/turnKey/turnIndex/role 等元数据变化
+    const existingById = new Map(existing.map((m) => [m.localMessageId, m]));
+    const metadataChanged = allMessages.some((m) => {
+      const prev = existingById.get(m.localMessageId);
+      return !prev
+        || prev.orderKey !== m.orderKey
+        || prev.turnKey !== m.turnKey
+        || prev.turnIndex !== m.turnIndex
+        || prev.role !== m.role;
+    });
+
+    if (!arraysEqual(existingOrderedIds, newOrderedIds) || metadataChanged) {
+      this.dirty = true;
+    }
 
     this.currentCache = {
       ...this.currentCache!,
       conversationId,
       updatedAt: now,
       messages: allMessages,
-      orderedIds
+      orderedIds: newOrderedIds,
     };
 
     if (this.dirty) this.scheduleSave();
 
-    return { allMessages, resolvedMounted, resolvedCandidates, newOrUpdated };
+    // 将 newOrUpdated 映射为 rekey 后的最终值
+    const finalById = new Map(allMessages.map((m) => [m.localMessageId, m]));
+    const finalNewOrUpdated = newOrUpdated.map((m) => finalById.get(m.localMessageId) ?? m);
+
+    return { allMessages, resolvedMounted, resolvedCandidates, newOrUpdated: finalNewOrUpdated };
   }
 
   updateMessageScrollMeta(localMessageId: string, scrollTop: number, scrollRatio: number): void {
@@ -212,10 +256,12 @@ export class CacheStore {
     if (!changed) return;
 
     const messagesById = new Map<string, CachedMessage>(messages.map((message) => [message.localMessageId, message]));
+    const normalized = reorderAndRekeyByTurnIndex(orderMessagesByIds(messagesById, this.currentCache.orderedIds));
     this.currentCache = {
       ...this.currentCache,
       updatedAt: now,
-      messages: orderMessagesByIds(messagesById, this.currentCache.orderedIds)
+      messages: normalized,
+      orderedIds: normalized.map((m) => m.localMessageId),
     };
     this.dirty = true;
     this.scheduleSave();
@@ -237,13 +283,14 @@ export class CacheStore {
       ...(temp.orderMode ? { orderMode: temp.orderMode } : {}),
     };
 
-    await chrome.storage.local.set({ [this.cacheKey(realId)]: migrated });
+    const normalizedMigrated = this.normalizeCache(migrated);
+    await chrome.storage.local.set({ [this.cacheKey(realId)]: normalizedMigrated });
     await chrome.storage.local.remove(this.cacheKey(tempId));
     await this.touchMeta(realId);
     const meta = await this.loadMeta();
     meta.conversationIds = meta.conversationIds.filter((id) => id !== tempId);
     await chrome.storage.local.set({ [META_KEY]: meta });
-    this.currentCache = migrated;
+    this.currentCache = normalizedMigrated;
     this.dirty = false;
   }
 
@@ -310,7 +357,7 @@ export class CacheStore {
     }
 
     const sameHash = existing
-      .filter((message) => message.textHash === candidate.textHash && !usedExisting.has(message.localMessageId))
+      .filter((message) => message.textHash === candidate.textHash && message.role === candidate.role && !usedExisting.has(message.localMessageId))
       .map((message) => ({
         message,
         distance: Math.abs(message.lastKnownScrollRatio - candidate.scrollRatio)
@@ -342,10 +389,15 @@ export class CacheStore {
   }
 
   private hasMeaningfulChange(previous: CachedMessage, next: CachedMessage): boolean {
-    return previous.preview !== next.preview
+    return previous.role !== next.role
+      || previous.preview !== next.preview
       || previous.textForSearch !== next.textForSearch
+      || previous.textHash !== next.textHash
       || previous.lastKnownScrollTop !== next.lastKnownScrollTop
-      || previous.lastKnownScrollRatio !== next.lastKnownScrollRatio;
+      || previous.lastKnownScrollRatio !== next.lastKnownScrollRatio
+      || previous.turnKey !== next.turnKey
+      || previous.turnIndex !== next.turnIndex
+      || previous.orderKey !== next.orderKey;
   }
 
   private scheduleSave(): void {
@@ -390,12 +442,33 @@ export class CacheStore {
       cache.messages.map((message) => message.localMessageId)
     );
 
+    // 补全旧缓存中缺失的 turnKey / turnIndex
+    let messages = orderMessagesByIds(messagesById, orderedIds).map((message) => {
+      if (message.turnKey !== undefined && message.turnIndex !== undefined) return message;
+      const inferred = inferTurnFields(message.localMessageId, message.conversationId);
+      if (!inferred) return message;
+      return { ...message, ...inferred };
+    });
+
+    // 按 turnIndex 排序并重算 orderKey
+    messages = reorderAndRekeyByTurnIndex(messages);
+    const normalizedOrderedIds = messages.map((m) => m.localMessageId);
+
     return {
       ...cache,
-      messages: orderMessagesByIds(messagesById, orderedIds),
-      orderedIds
+      messages,
+      orderedIds: normalizedOrderedIds,
     };
   }
+}
+
+function inferTurnFields(localMessageId: string, conversationId: string): { turnKey: string; turnIndex: number } | null {
+  const prefix = `${conversationId}::turn::`;
+  if (!localMessageId.startsWith(prefix)) return null;
+  const turnKey = localMessageId.slice(prefix.length);
+  const match = turnKey.match(/^conversation-turn-(\d+)$/);
+  if (!match?.[1]) return null;
+  return { turnKey, turnIndex: parseInt(match[1], 10) };
 }
 
 function arraysEqual(left: string[], right: string[]): boolean {
