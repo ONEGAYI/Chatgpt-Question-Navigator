@@ -277,14 +277,9 @@ export class MessageScanner {
   }
 
   private computeActiveMessageId(): string | null {
-    const snapshot = this.runtimeStore.getSnapshot();
     const viewport = this.scrollDriver.getViewportRect();
-    const messageById = new Map(snapshot.messages.map((m) => [m.localMessageId, m]));
-
-    const isUserElement = (id: string): boolean => messageById.get(id)?.role === 'user';
 
     const entries = Array.from(this.elementById.entries())
-      .filter(([id]) => isUserElement(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.bottom >= viewport.top && rect.top <= viewport.bottom);
 
@@ -294,7 +289,6 @@ export class MessageScanner {
     if (visibleBelowTop) return visibleBelowTop.id;
 
     const nearestAbove = Array.from(this.elementById.entries())
-      .filter(([id]) => isUserElement(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.top < viewport.top)
       .sort((a, b) => b.rect.top - a.rect.top)[0];

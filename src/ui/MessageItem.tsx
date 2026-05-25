@@ -26,7 +26,7 @@ function MessageItemComponent({
   // --- AI 消息布局（纯视觉，不可交互）---
   if (isAssistant) {
     return (
-      <div className="cqn-item-ai" role="listitem">
+      <div className={`cqn-item-ai${active ? ' is-active' : ''}`} role="listitem">
         <svg className="cqn-tree-connector" width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
           <path d="M6 0v14M6 14h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>

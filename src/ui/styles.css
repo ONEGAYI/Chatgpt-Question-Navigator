@@ -190,6 +190,23 @@
   text-align: left;
 }
 
+.cqn-item-ai.is-active {
+  border-color: var(--cqn-accent);
+  background: rgba(16, 163, 127, 0.12);
+}
+
+.cqn-item-ai.is-active .cqn-item-ai-body {
+  border-left-color: var(--cqn-accent);
+}
+
+.cqn-item-ai.is-active .cqn-tree-connector {
+  opacity: 1;
+}
+
+.cqn-item-ai.is-active .cqn-item-ai-preview {
+  color: var(--cqn-text-primary);
+}
+
 .cqn-tree-connector {
   flex-shrink: 0;
   padding-top: 6px;
