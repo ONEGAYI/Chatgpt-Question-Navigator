@@ -14,7 +14,31 @@
 - 点击当前 DOM 中存在的问题可平滑跳转并临时高亮目标。
 - 支持搜索已缓存问题和 hover 查看完整预览。
 
-## 安装依赖
+## 安装扩展（预打包 zip）
+
+前往 [Releases](https://github.com/ONEGAYI/Chatgpt-Question-Navigator/releases) 页面，下载最新版本的 `chatgpt-question-navigator-*.zip`，解压到任意文件夹，然后按下方浏览器说明加载。
+
+### Chrome 加载方式
+
+1. 打开 `chrome://extensions/`。
+2. 开启右上角「开发者模式」。
+3. 点击「加载已解压的扩展程序」。
+4. 选择解压后的文件夹。
+5. 打开 ChatGPT 页面验证右侧导航侧栏。
+
+### Edge 加载方式
+
+1. 打开 `edge://extensions/`。
+2. 开启左侧「开发人员模式」。
+3. 点击「加载解压缩的扩展」。
+4. 选择解压后的文件夹。
+5. 打开 ChatGPT 页面验证右侧导航侧栏。
+
+---
+
+## 从源码构建
+
+### 安装依赖
 
 ```bash
 pnpm install
@@ -26,25 +50,19 @@ pnpm install
 npm install
 ```
 
-## 开发运行
+### 开发运行
 
 ```bash
 pnpm dev
 ```
 
-或：
-
-```bash
-npm run dev
-```
-
-## 类型检查
+### 类型检查
 
 ```bash
 pnpm compile
 ```
 
-## 构建扩展
+### 构建扩展
 
 ```bash
 pnpm build
@@ -53,22 +71,6 @@ pnpm build
 构建完成后，产物会自动拷贝到 `%TEMP%\Chatgpt-Question-Navigator`（即系统临时目录下的 `Chatgpt-Question-Navigator` 文件夹）。原始构建产物仍保留在 `.output/chrome-mv3`。
 
 > **为什么拷贝到临时目录？** 当使用 git worktree 在多个分支间并行开发时，每个工作树有独立的 `.output` 目录。浏览器只需固定加载临时目录中的副本，切换工作树后重新 `pnpm build` 即可更新，无需反复修改扩展加载路径。
-
-## Chrome 加载方式
-
-1. 打开 `chrome://extensions/`。
-2. 开启右上角「开发者模式」。
-3. 点击「加载已解压的扩展程序」。
-4. 选择 `%TEMP%\Chatgpt-Question-Navigator`（即系统临时目录下的 `Chatgpt-Question-Navigator` 文件夹）。
-5. 打开 ChatGPT 页面验证右侧导航侧栏。
-
-## Edge 加载方式
-
-1. 打开 `edge://extensions/`。
-2. 开启左侧「开发人员模式」。
-3. 点击「加载解压缩的扩展」。
-4. 选择 `%TEMP%\Chatgpt-Question-Navigator`（即系统临时目录下的 `Chatgpt-Question-Navigator` 文件夹）。
-5. 打开 ChatGPT 页面验证右侧导航侧栏。
 
 ## 隐私说明
 
@@ -79,12 +81,10 @@ pnpm build
 - 扩展无法读取从未在 DOM 中出现过的历史消息。
 - 第一次打开超长对话时，远处问题需要用户滚动经过后才会被缓存。
 - ChatGPT 页面结构变化可能导致 DOM 识别失效。
-- Phase 1-3 只支持当前 DOM 中已挂载消息的直接跳转。
-- cached-only 消息的渐进式远距离跳转将在 Phase 4 实现。
+- cached-only 消息支持渐进式远距离跳转（最多 200 次尝试）。
 
 ## 后续路线
 
-- Phase 4：渐进式跳转、跳转取消、失败 toast。
 - 验证并启用 experimental DOM 后备选择器。
 - 导出/导入缓存。
 - 自定义快捷键。

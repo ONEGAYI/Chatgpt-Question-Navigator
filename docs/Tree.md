@@ -19,7 +19,7 @@ chatgpt-question-navigator/
 │   │   ├── scrollDriver.ts         # 滚动基础设施：多源 root 检测 + 评分验证 + 操作结果 + viewport + 方向捕获 + 诊断
 │   │   └── urlWatcher.ts           # SPA 路由监听，history patch + popstate + 轮询
 │   ├── popup/
-│   │   ├── PopupApp.tsx            # Popup 主组件：存储用量仪表、对话列表、缓存操作按钮
+│   │   ├── PopupApp.tsx            # Popup 主组件：存储用量仪表、对话列表、缓存操作按钮、滚屏速率设置（default/fast/turbo）
 │   │   └── popup.css               # Popup 样式，复用侧栏 CSS 变量体系
 │   ├── shared/
 │   │   ├── hash.ts                 # SHA-256 文本指纹（前 8 字节）
@@ -48,8 +48,15 @@ chatgpt-question-navigator/
 │   ├── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
 │   ├── order-list-regression.test.mjs  # orderList 分段合并回归测试（node:test）
 │   └── release.mjs                  # 发布流程：pull → push → build → zip，输出产物路径供 gh release 使用
+├── .github/
+│   └── workflows/
+│       ├── pr-agent.yml             # PR Agent 自动增量审查（DeepSeek V4 Flash）
+│       └── coderabbit-retry.yml     # CodeRabbit 审查失败自动重试
+├── .coderabbit.yaml                 # CodeRabbit 配置
+├── .pr_agent.toml                   # PR Agent 配置
 ├── .gitignore
 ├── CLAUDE.md                        # Claude Code 项目指引
+├── CHANGELOG.md                     # 版本变更记录（Keep a Changelog 格式）
 ├── README.md                        # 用户文档：安装、构建、加载、隐私说明
 ├── package.json
 ├── pnpm-workspace.yaml              # pnpm workspace 配置
