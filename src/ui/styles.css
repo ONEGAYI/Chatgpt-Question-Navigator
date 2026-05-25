@@ -34,6 +34,34 @@
   min-height: 40px;
 }
 
+.cqn-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+  z-index: 1;
+}
+
+.cqn-resize-handle:hover {
+  background: rgba(16, 163, 127, 0.3);
+}
+
+.cqn-sidebar.is-resizing .cqn-resize-handle {
+  background: rgba(16, 163, 127, 0.6);
+}
+
+.cqn-sidebar.is-resizing {
+  transition: none;
+}
+
+.cqn-sidebar.is-resizing * {
+  user-select: none !important;
+}
+
 .cqn-header {
   display: flex;
   align-items: center;
@@ -240,7 +268,7 @@
 }
 
 .cqn-hover-preview {
-  width: min(360px, calc(100vw - 340px));
+  width: min(360px, calc(100vw - var(--cqn-sidebar-width) - 24px));
   max-height: 200px;
   overflow: auto;
   padding: 10px;
