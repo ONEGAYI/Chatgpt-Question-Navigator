@@ -10,8 +10,6 @@ const STYLE_ID = 'cqn-highlight-style';
 export const MAX_ATTEMPTS = 200;
 const SETTLE_MS = 500;
 const MAX_CONSECUTIVE_NOOPS = 3;
-const RATIO_ESCAPE_STAGNANT = 2;
-const RATIO_ESCAPE_INEFFECTIVE = 2;
 const DEBUG_JUMP = false;
 
 interface JumpToken {
@@ -37,17 +35,6 @@ function decideDirection(targetOrderKey: number, visibleRange: VisibleRange | nu
   if (!visibleRange) return 'down';
   if (targetOrderKey < visibleRange.minOrderKey) return 'up';
   return 'down';
-}
-
-function orderDistanceToRange(targetOrderKey: number, range: VisibleRange | null): number {
-  if (!range) return Infinity;
-  if (targetOrderKey < range.minOrderKey) return range.minOrderKey - targetOrderKey;
-  if (targetOrderKey > range.maxOrderKey) return targetOrderKey - range.maxOrderKey;
-  return 0;
-}
-
-function visibleRangeSignature(range: VisibleRange | null): string {
-  return range ? `${range.minOrderKey}:${range.maxOrderKey}` : 'null';
 }
 
 function waitForDomSettled(ms: number): Promise<void> {
@@ -120,9 +107,6 @@ export class JumpController {
 
   private async jumpToCachedMessage(target: CachedMessage, token: JumpToken): Promise<boolean> {
     let consecutiveNoOps = 0;
-    let lastRangeSig: string | null = null;
-    let stagnantRangeCount = 0;
-    let ineffectiveMoveCount = 0;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       if (!this.isCurrent(token)) return false;
@@ -136,7 +120,7 @@ export class JumpController {
       }
 
       const el = this.scanner.getElementByLocalId(target.localMessageId);
-      if (el?.isConnected && this.scrollDriver.isElementInViewport(el)) {
+      if (el?.isConnected) {
         return await this.landOnTarget(el, target, token, true);
       }
 
@@ -153,7 +137,7 @@ export class JumpController {
 
       if (result.mountedIds.has(target.localMessageId)) {
         const found = this.scanner.getElementByLocalId(target.localMessageId);
-        if (found?.isConnected && this.scrollDriver.isElementInViewport(found)) {
+        if (found?.isConnected) {
           return await this.landOnTarget(found, target, token, true);
         }
       }
@@ -161,85 +145,53 @@ export class JumpController {
       if (!this.isCurrent(token)) return false;
       this.runtimeStore.setJumpState({ status: 'jumping', targetId: target.localMessageId, attempt: attempt + 1 });
 
-      // --- visibleRange 停滞检测 ---
-      const rangeSig = visibleRangeSignature(result.visibleRange);
-      if (rangeSig === lastRangeSig) {
-        stagnantRangeCount += 1;
-      } else {
-        stagnantRangeCount = 0;
-      }
-      lastRangeSig = rangeSig;
-
-      // --- ratio escape：被局部 anchor 捕捉时强制跳到目标 ratio ---
-      if (
-        (stagnantRangeCount >= RATIO_ESCAPE_STAGNANT || ineffectiveMoveCount >= RATIO_ESCAPE_INEFFECTIVE) &&
-        target.lastKnownScrollRatio != null &&
-        Number.isFinite(target.lastKnownScrollRatio)
-      ) {
-        this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
-        if (DEBUG_JUMP) {
-          console.debug('[CQN Jump] ratio-escape', { attempt, stagnantRangeCount, ineffectiveMoveCount, targetRatio: target.lastKnownScrollRatio });
-        }
-        stagnantRangeCount = 0;
-        ineffectiveMoveCount = 0;
-        await waitForDomSettled(SETTLE_MS);
-        continue;
-      }
-
-      // --- 滚动策略 ---
-      const beforeTop = this.scrollDriver.getScrollTop();
+      let moved = false;
       let directionSource: string;
 
-      const distance = orderDistanceToRange(target.orderKey, result.visibleRange);
-
-      if (
+      if (result.visibleRange !== null) {
+        const direction = decideDirection(target.orderKey, result.visibleRange);
+        moved = this.scrollOneChunk(direction, attempt);
+        directionSource = 'visible-range';
+      } else if (
         attempt === 0 &&
-        distance >= 4 &&
         target.lastKnownScrollRatio != null &&
         Number.isFinite(target.lastKnownScrollRatio)
       ) {
-        // 远距离目标优先用 ratio 粗定位
-        this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
-        directionSource = 'initial-ratio-seed';
-      } else if (result.visibleRange !== null) {
-        const direction = decideDirection(target.orderKey, result.visibleRange);
-        this.scrollOneChunk(direction, attempt);
-        directionSource = 'visible-range';
+        const currentRatio = this.scrollDriver.getScrollRatio();
+        const ratioDiff = target.lastKnownScrollRatio - currentRatio;
+        if (Math.abs(ratioDiff) > 0.02) {
+          const scrollResult = this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
+          moved = scrollResult.moved;
+          directionSource = 'ratio-seed';
+        } else {
+          const direction = decideDirection(target.orderKey, result.visibleRange);
+          moved = this.scrollOneChunk(direction, attempt);
+          directionSource = 'fallback';
+        }
       } else {
         const direction = decideDirection(target.orderKey, result.visibleRange);
-        this.scrollOneChunk(direction, attempt);
+        moved = this.scrollOneChunk(direction, attempt);
         directionSource = 'fallback';
       }
-
-      await waitForDomSettled(SETTLE_MS);
-      if (!this.isCurrent(token)) return false;
-
-      // --- 用 settle 后的净位移判断是否有效 ---
-      const afterTop = this.scrollDriver.getScrollTop();
-      const minEffectiveDelta = Math.max(80, this.scrollDriver.getClientHeight() * 0.08);
-      const effectiveMoved = Math.abs(afterTop - beforeTop) >= minEffectiveDelta;
 
       if (DEBUG_JUMP) {
         console.debug('[CQN Jump]', {
           targetId: target.localMessageId,
           targetOrderKey: target.orderKey,
+          targetLastKnownScrollRatio: target.lastKnownScrollRatio,
           attempt,
-          currentScrollTop: afterTop,
+          currentScrollTop: this.scrollDriver.getScrollTop(),
+          currentScrollRatio: this.scrollDriver.getScrollRatio(),
           visibleRange: result.visibleRange,
           directionSource,
-          distance,
-          effectiveMoved,
-          stagnantRangeCount,
-          ineffectiveMoveCount,
+          moved,
         });
       }
 
-      if (effectiveMoved) {
+      if (moved) {
         consecutiveNoOps = 0;
-        ineffectiveMoveCount = 0;
       } else {
         consecutiveNoOps += 1;
-        ineffectiveMoveCount += 1;
         if (consecutiveNoOps >= MAX_CONSECUTIVE_NOOPS) {
           if (this.isCurrent(token)) {
             this.runtimeStore.setJumpState({
@@ -251,6 +203,8 @@ export class JumpController {
           return false;
         }
       }
+
+      await waitForDomSettled(SETTLE_MS);
     }
 
     if (this.isCurrent(token)) {
@@ -265,28 +219,18 @@ export class JumpController {
 
   private async landOnTarget(el: HTMLElement, target: CachedMessage, token: JumpToken, smooth: boolean): Promise<boolean> {
     if (!this.isCurrent(token)) return false;
-
     this.scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: smooth ? 'smooth' : 'auto' });
-
+    this.highlightMessage(el);
     if (smooth) {
       await waitForDomSettled(400);
       if (!this.isCurrent(token)) return false;
     }
-
-    // 验证目标真的在 viewport 中，否则返回 false 让外层继续跳转
-    if (!el.isConnected || !this.scrollDriver.isElementInViewport(el)) {
-      return false;
-    }
-
-    this.highlightMessage(el);
-
     try {
       this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
       await this.cacheStore.flush();
     } catch {
       // Extension context invalidated — visual jump already succeeded
     }
-
     return true;
   }
 

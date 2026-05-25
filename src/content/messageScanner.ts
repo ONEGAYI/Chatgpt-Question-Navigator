@@ -124,9 +124,6 @@ export class MessageScanner {
 
     this.rebuildMountedMaps(result, sortedCandidates);
 
-    // 注册 AI turn 锚点的 DOM 元素（不参与 resolveScannedSegments 候选流程）
-    this.registerAnchorTurnElements(conversationId, result.allMessages);
-
     this.runtimeStore.setMessages(result.allMessages);
     this.runtimeStore.setMountedState(this.mountedIds, this.elementById);
     this.reobserveMountedElements();
@@ -170,12 +167,7 @@ export class MessageScanner {
     if (this.scrollTimer !== null) return;
     this.scrollTimer = window.setTimeout(() => {
       this.scrollTimer = null;
-      const snapshot = this.runtimeStore.getSnapshot();
-      const userIds = new Set(
-        snapshot.messages.filter(m => m.role === 'user').map(m => m.localMessageId)
-      );
       for (const localId of this.mountedIds) {
-        if (!userIds.has(localId)) continue;
         const el = this.elementById.get(localId);
         if (el && this.scrollDriver.isElementInViewport(el)) {
           this.updateScrollMeta(localId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
@@ -257,60 +249,22 @@ export class MessageScanner {
       this.runtimeStore.setActiveMessageId(this.computeActiveMessageId());
     }, { threshold: [0, 0.25, 0.5, 1] });
 
-    this.elementById.forEach((element) => {
-      this.intersectionObserver?.observe(element);
-    });
-  }
-
-  private registerAnchorTurnElements(conversationId: string, allMessages: CachedMessage[]): void {
-    // 构建 Map 避免 O(n²) 查找
-    const messageById = new Map(allMessages.map((m) => [m.localMessageId, m]));
-    const allTurnElements = this.domAdapter.findTurnElements();
-
-    for (const turnEl of allTurnElements) {
-      const turnKey = this.domAdapter.extractTurnKey(turnEl);
-      if (!turnKey) continue;
-
-      const localId = `${conversationId}::turn::${turnKey}`;
-      // 只注册已在缓存中的 AI 消息；用户消息已通过 rebuildMountedMaps 处理
-      const cached = messageById.get(localId);
-      if (!cached || cached.role !== 'assistant') continue;
-
-      if (!this.elementById.has(localId)) {
-        const assistantEl = turnEl.querySelector<HTMLElement>('[data-message-author-role="assistant"]');
-        if (!assistantEl || !assistantEl.isConnected) continue;
-
-        // 验证 DOM 元素有有效视觉尺寸（排除 skeleton）
-        const rect = assistantEl.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) continue;
-
-        this.elementById.set(localId, assistantEl);
-        this.mountedIds.add(localId);
-      }
-    }
+    this.elementById.forEach((element) => this.intersectionObserver?.observe(element));
   }
 
   private computeActiveMessageId(): string | null {
+    const snapshot = this.runtimeStore.getSnapshot();
     const viewport = this.scrollDriver.getViewportRect();
-    const probeY = viewport.top + (viewport.bottom - viewport.top) * 0.4;
 
     const entries = Array.from(this.elementById.entries())
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.bottom >= viewport.top && rect.top <= viewport.bottom);
 
-    // 优先选择包含 probe line 的消息（40% 高度处）
-    const containingProbe = entries
-      .filter(({ rect }) => rect.top <= probeY && rect.bottom >= probeY)
-      .sort((a, b) => Math.abs(a.rect.top - probeY) - Math.abs(b.rect.top - probeY))[0];
-    if (containingProbe) return containingProbe.id;
-
-    // probe line 没命中 → 选择 viewport 顶部以下最近的消息
-    const firstBelowTop = entries
+    const visibleBelowTop = entries
       .filter(({ rect }) => rect.top >= viewport.top)
       .sort((a, b) => a.rect.top - b.rect.top)[0];
-    if (firstBelowTop) return firstBelowTop.id;
+    if (visibleBelowTop) return visibleBelowTop.id;
 
-    // viewport 内无消息 → 取 viewport 上方最近的消息
     const nearestAbove = Array.from(this.elementById.entries())
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.top < viewport.top)
@@ -322,7 +276,6 @@ export class MessageScanner {
   private computeVisibleRange(): VisibleRange | null {
     const snapshot = this.runtimeStore.getSnapshot();
     const visibleOrderKeys = snapshot.messages
-      .filter((message) => message.role === 'user')
       .filter((message) => {
         const element = this.elementById.get(message.localMessageId);
         return element ? this.scrollDriver.isElementInViewport(element) : false;

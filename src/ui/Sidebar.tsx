@@ -10,18 +10,6 @@ import { SearchBox } from './SearchBox';
 
 type SidebarMode = 'expanded' | 'mini' | 'collapsed';
 
-function deriveActiveUserId(activeMessageId: string | null, messages: CachedMessage[]): string | null {
-  if (!activeMessageId) return null;
-  const index = messages.findIndex((m) => m.localMessageId === activeMessageId);
-  if (index < 0) return activeMessageId;
-  if (messages[index]?.role === 'user') return messages[index]!.localMessageId;
-  // 当前 active 是 assistant → 向前找最近的 user
-  for (let i = index - 1; i >= 0; i--) {
-    if (messages[i]?.role === 'user') return messages[i]!.localMessageId;
-  }
-  return null;
-}
-
 const MODE_STORAGE_KEY = 'cqn-sidebar-mode';
 
 const STATUS_TEXT: Record<AutoCollectPhase, string> = {
@@ -171,7 +159,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
       <>
         <MiniBar
           messages={snapshot.messages.filter((m) => m.role === 'user')}
-          activeMessageId={deriveActiveUserId(snapshot.activeMessageId, snapshot.messages)}
+          activeMessageId={snapshot.activeMessageId}
           mountedIds={snapshot.mountedIds}
           onJump={handleJump}
           onExpand={() => handleModeChange('expanded')}
@@ -262,15 +250,15 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
                 key={message.localMessageId}
                 message={message}
                 index={0}
-                active={snapshot.activeMessageId === message.localMessageId}
-                mounted={snapshot.mountedIds.has(message.localMessageId)}
-                isJumping={snapshot.jumpState.status === 'jumping' && snapshot.jumpState.targetId === message.localMessageId}
+                active={!isAssistant && snapshot.activeMessageId === message.localMessageId}
+                mounted={!isAssistant && snapshot.mountedIds.has(message.localMessageId)}
+                isJumping={!isAssistant && snapshot.jumpState.status === 'jumping' && snapshot.jumpState.targetId === message.localMessageId}
                 searchQuery={searchQuery}
                 isAssistant={isAssistant}
                 label={label}
-                onClick={handleJump}
-                onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
-                onHoverEnd={() => setHover(null)}
+                onClick={isAssistant ? undefined : handleJump}
+                onHoverStart={isAssistant ? undefined : (msg, rect) => setHover({ message: msg, rect })}
+                onHoverEnd={isAssistant ? undefined : () => setHover(null)}
               />
             ))}
           </nav>

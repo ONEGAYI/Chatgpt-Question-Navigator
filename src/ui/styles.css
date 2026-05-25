@@ -186,21 +186,17 @@
   border-radius: 7px;
   background: transparent;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
   text-align: left;
 }
 
 .cqn-item-ai:hover {
-  background: var(--cqn-bg-secondary);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .cqn-item-ai.is-active {
   border-color: var(--cqn-accent);
   background: rgba(16, 163, 127, 0.12);
-}
-
-.cqn-item-ai.is-jumping {
-  animation: cqn-pulse 1.2s ease-in-out infinite;
 }
 
 .cqn-tree-connector {

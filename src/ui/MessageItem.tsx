@@ -7,13 +7,13 @@ interface MessageItemProps {
   index: number;
   active: boolean;
   mounted: boolean;
-  isJumping?: boolean;
+  isJumping?: boolean | undefined;
   searchQuery: string;
-  isAssistant?: boolean;
+  isAssistant?: boolean | undefined;
   label: string;
-  onClick: (message: CachedMessage) => void;
-  onHoverStart?: (message: CachedMessage, rect: DOMRect) => void;
-  onHoverEnd?: () => void;
+  onClick?: ((message: CachedMessage) => void) | undefined;
+  onHoverStart?: ((message: CachedMessage, rect: DOMRect) => void) | undefined;
+  onHoverEnd?: (() => void) | undefined;
 }
 
 function MessageItemComponent({
@@ -22,23 +22,12 @@ function MessageItemComponent({
   onClick, onHoverStart, onHoverEnd,
 }: MessageItemProps) {
   const parts = splitByQuery(message.preview, searchQuery);
-  const metaText = isJumping ? '⟳ 跳转中…' : mounted ? '● 当前可跳转' : '○ 已缓存';
 
   if (isAssistant) {
-    const handleAiMouseEnter = (e: MouseEvent) => {
-      const target = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.cqn-item-ai-body');
-      if (target && onHoverStart) {
-        onHoverStart(message, target.getBoundingClientRect());
-      }
-    };
-
     return (
-      <button
-        className={`cqn-item-ai${active ? ' is-active' : ''}${isJumping ? ' is-jumping' : ''}`}
-        type="button"
-        onClick={() => onClick(message)}
-        onMouseEnter={handleAiMouseEnter}
-        onMouseLeave={onHoverEnd}
+      <div
+        className={`cqn-item-ai${active ? ' is-active' : ''}`}
+        role="listitem"
       >
         <svg className="cqn-tree-connector" width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
           <path d="M6 0v14M6 14h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -48,11 +37,12 @@ function MessageItemComponent({
           <span className="cqn-item-ai-preview">
             {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
           </span>
-          <span className="cqn-item-ai-meta">{metaText}</span>
         </span>
-      </button>
+      </div>
     );
   }
+
+  const metaText = isJumping ? '⟳ 跳转中…' : mounted ? '● 当前可跳转' : '○ 已缓存';
 
   const handleMouseEnter = (e: MouseEvent) => {
     const target = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.cqn-item-body');
@@ -65,7 +55,7 @@ function MessageItemComponent({
     <button
       className={`cqn-item${active ? ' is-active' : ''}${isJumping ? ' is-jumping' : ''}`}
       type="button"
-      onClick={() => onClick(message)}
+      onClick={() => onClick?.(message)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={onHoverEnd}
     >
