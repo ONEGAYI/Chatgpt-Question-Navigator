@@ -54,7 +54,7 @@ Popup → Content Script 通信协议：
 | `MessageScanner` | 核心扫描引擎。通过 MutationObserver（防抖 500ms）和 IntersectionObserver 监控 DOM 变化，将候选消息交给 CacheStore 去重合并。候选生成时通过 DomAdapter.findTurnKeyForElement 提取 turnKey。rescan 时注册 AI turn 锚点元素到 elementById（扩展 visibleRange），computeActiveMessageId 同时追踪 user 和 assistant 消息 |
 | `CacheStore` | `chrome.storage.local` 持久化层。按 `conv:{id}` 分会话存储，LRU 清理（上限 8MB），防抖保存（2s）。`resolveScannedSegments` 是核心分段合并方法，`replaceConversationMessages` 用于 canonical 模式原子写入。localMessageId 优先使用 turn-based 格式。缓存同时包含 user 和 assistant 消息（AI 锚点） |
 | `orderList` | 有序 ID 分段合并算法。`mergeOrderedSegments` 处理 contiguous/detached 段的 anchor-splice 合并，`inferDirectionFromScrollAnchor` 从滚动元数据推断扫描方向 |
-| `RuntimeStore` | 内存中的响应式状态。通过 subscribe/emit 模式驱动 Preact UI 更新。包含 autoCollectProgress 状态 |
+| `RuntimeStore` | 内存中的响应式状态。通过 subscribe/emit 模式驱动 Preact UI 更新。包含 autoCollectProgress 状态和 scrollProfileName 速率档位 |
 | `UrlWatcher` | 监听 SPA 路由变化（patch history API + popstate + 轮询），提取 conversationId 或分配临时 ID |
 | `ScrollDriver` | 滚动基础设施：多源 scroll root 检测（selector / main 后代 / main 祖先 / user message 祖先链 / DOM root）+ 评分 + 最小滚动验证、操作结果追踪、viewport 判断、用户滚动方向捕获（PR #7）、运行时重检 + 诊断。无 DomAdapter 依赖。document root 候选归一化为 window kind。ChatGPT 的实际滚动容器是 `<main>` 的父级 DIV（overflowY: auto），init 时需轮询等待异步渲染完成后 redetect |
 | `JumpController` | 跳转控制：已挂载消息直接 scrollIntoView + 高亮；未挂载消息渐进式跳转（scrollRatio 粗定位 + orderKey 自适应步进，JumpToken 可取消，MAX_ATTEMPTS=30）；用户滚动/Esc/新跳转自动取消当前操作 |
@@ -75,6 +75,7 @@ Popup → Content Script 通信协议：
 | 文件 | 职责 |
 |------|------|
 | `types.ts` | 所有接口定义（CachedMessage, ConversationCache, RuntimeState, JumpState 等） |
+| `scrollProfile.ts` | ScrollProfile 类型、default/fast/turbo 三档滚屏速率预置参数 |
 | `hash.ts` | SHA-256 取前 8 字节作为文本指纹 |
 | `text.ts` | 文本归一化、截断预览、搜索分词高亮 |
 
