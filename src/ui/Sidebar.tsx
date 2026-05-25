@@ -10,6 +10,18 @@ import { SearchBox } from './SearchBox';
 
 type SidebarMode = 'expanded' | 'mini' | 'collapsed';
 
+function deriveActiveUserId(activeMessageId: string | null, messages: CachedMessage[]): string | null {
+  if (!activeMessageId) return null;
+  const index = messages.findIndex((m) => m.localMessageId === activeMessageId);
+  if (index < 0) return activeMessageId;
+  if (messages[index]?.role === 'user') return messages[index]!.localMessageId;
+  // 当前 active 是 assistant → 向前找最近的 user
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'user') return messages[i]!.localMessageId;
+  }
+  return null;
+}
+
 const MODE_STORAGE_KEY = 'cqn-sidebar-mode';
 
 const STATUS_TEXT: Record<AutoCollectPhase, string> = {
@@ -159,7 +171,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
       <>
         <MiniBar
           messages={snapshot.messages.filter((m) => m.role === 'user')}
-          activeMessageId={snapshot.activeMessageId}
+          activeMessageId={deriveActiveUserId(snapshot.activeMessageId, snapshot.messages)}
           mountedIds={snapshot.mountedIds}
           onJump={handleJump}
           onExpand={() => handleModeChange('expanded')}

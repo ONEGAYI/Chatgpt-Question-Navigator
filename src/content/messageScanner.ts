@@ -170,12 +170,7 @@ export class MessageScanner {
     if (this.scrollTimer !== null) return;
     this.scrollTimer = window.setTimeout(() => {
       this.scrollTimer = null;
-      const snapshot = this.runtimeStore.getSnapshot();
-      const userIds = new Set(
-        snapshot.messages.filter(m => m.role === 'user').map(m => m.localMessageId)
-      );
       for (const localId of this.mountedIds) {
-        if (!userIds.has(localId)) continue;
         const el = this.elementById.get(localId);
         if (el && this.scrollDriver.isElementInViewport(el)) {
           this.updateScrollMeta(localId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
@@ -257,12 +252,8 @@ export class MessageScanner {
       this.runtimeStore.setActiveMessageId(this.computeActiveMessageId());
     }, { threshold: [0, 0.25, 0.5, 1] });
 
-    const snapshot = this.runtimeStore.getSnapshot();
-    const userIds = new Set(
-      snapshot.messages.filter(m => m.role === 'user').map(m => m.localMessageId)
-    );
-    this.elementById.forEach((element, id) => {
-      if (userIds.has(id)) this.intersectionObserver?.observe(element);
+    this.elementById.forEach((element) => {
+      this.intersectionObserver?.observe(element);
     });
   }
 
@@ -282,33 +273,40 @@ export class MessageScanner {
 
       if (!this.elementById.has(localId)) {
         const assistantEl = turnEl.querySelector<HTMLElement>('[data-message-author-role="assistant"]');
-        const targetEl = assistantEl ?? turnEl;
-        if (targetEl.isConnected) {
-          this.elementById.set(localId, targetEl);
-          this.mountedIds.add(localId);
-        }
+        if (!assistantEl || !assistantEl.isConnected) continue;
+
+        // 验证 DOM 元素有有效视觉尺寸（排除 skeleton）
+        const rect = assistantEl.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+
+        this.elementById.set(localId, assistantEl);
+        this.mountedIds.add(localId);
       }
     }
   }
 
   private computeActiveMessageId(): string | null {
-    const snapshot = this.runtimeStore.getSnapshot();
     const viewport = this.scrollDriver.getViewportRect();
-    const messageById = new Map(snapshot.messages.map((m) => [m.localMessageId, m]));
-    const isUser = (id: string): boolean => messageById.get(id)?.role === 'user';
+    const probeY = viewport.top + (viewport.bottom - viewport.top) * 0.4;
 
     const entries = Array.from(this.elementById.entries())
-      .filter(([id]) => isUser(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.bottom >= viewport.top && rect.top <= viewport.bottom);
 
-    const visibleBelowTop = entries
+    // 优先选择包含 probe line 的消息（40% 高度处）
+    const containingProbe = entries
+      .filter(({ rect }) => rect.top <= probeY && rect.bottom >= probeY)
+      .sort((a, b) => Math.abs(a.rect.top - probeY) - Math.abs(b.rect.top - probeY))[0];
+    if (containingProbe) return containingProbe.id;
+
+    // probe line 没命中 → 选择 viewport 顶部以下最近的消息
+    const firstBelowTop = entries
       .filter(({ rect }) => rect.top >= viewport.top)
       .sort((a, b) => a.rect.top - b.rect.top)[0];
-    if (visibleBelowTop) return visibleBelowTop.id;
+    if (firstBelowTop) return firstBelowTop.id;
 
+    // viewport 内无消息 → 取 viewport 上方最近的消息
     const nearestAbove = Array.from(this.elementById.entries())
-      .filter(([id]) => isUser(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.top < viewport.top)
       .sort((a, b) => b.rect.top - a.rect.top)[0];

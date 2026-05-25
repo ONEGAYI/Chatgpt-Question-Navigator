@@ -221,18 +221,28 @@ export class JumpController {
 
   private async landOnTarget(el: HTMLElement, target: CachedMessage, token: JumpToken, smooth: boolean): Promise<boolean> {
     if (!this.isCurrent(token)) return false;
+
     this.scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: smooth ? 'smooth' : 'auto' });
-    this.highlightMessage(el);
+
     if (smooth) {
       await waitForDomSettled(400);
       if (!this.isCurrent(token)) return false;
     }
+
+    // 验证目标真的在 viewport 中，否则返回 false 让外层继续跳转
+    if (!el.isConnected || !this.scrollDriver.isElementInViewport(el)) {
+      return false;
+    }
+
+    this.highlightMessage(el);
+
     try {
       this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
       await this.cacheStore.flush();
     } catch {
       // Extension context invalidated — visual jump already succeeded
     }
+
     return true;
   }
 
