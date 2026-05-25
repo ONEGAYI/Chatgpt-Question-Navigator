@@ -150,7 +150,7 @@ export default defineContentScript({
       if (e.ctrlKey && e.shiftKey && e.key === 'S') {
         const current = runtimeStore.getSnapshot().scrollProfileName;
         const idx = SCROLL_PROFILE_ORDER.indexOf(current);
-        const next = SCROLL_PROFILE_ORDER[(idx + 1) % SCROLL_PROFILE_ORDER.length];
+        const next = SCROLL_PROFILE_ORDER[(idx + 1) % SCROLL_PROFILE_ORDER.length]!;
         runtimeStore.setScrollProfile(next);
         chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: next });
         console.log(`[CQN] ScrollProfile switched to: ${next}`);
