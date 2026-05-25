@@ -12,6 +12,7 @@ const MUTATION_DEBOUNCE_MS = 500;
 const STREAMING_DEBOUNCE_MS = 3000;
 const SCROLL_THROTTLE_MS = 300;
 const MIN_SEGMENT_GAP_PX = 320;
+const DEBUG_SCAN = false;
 
 interface ScannedCandidateSegment {
   candidates: ScannedMessageCandidate[];
@@ -32,6 +33,32 @@ export class MessageScanner {
   private lastObservedScrollTop: number | null = null;
   private lastObservedDirection: ScanDirection = 'unknown';
   private rescanGeneration = 0;
+
+  /**
+   * 判断 turn 元素是否在 viewport 附近，是 live rescan 的 mounted 候选。
+   * 这是普通 live rescan 的过滤，不用于 AutoCollector 全量骨架扫描。
+   * ChatGPT 虚拟化可能保留 DOM 节点但将其移出 viewport（isConnected 仍为 true）。
+   * DOM connected 不能等价于 mounted — 只有几何上可达的节点才应进入 mountedIds。
+   * viewport 必须来自 scrollDriver.getViewportRect()，不要直接使用 window.innerHeight，
+   * 否则 element scroll root 场景会误判。
+   */
+  private isDirectMountCandidateTurn(turnEl: HTMLElement): boolean {
+    if (!turnEl.isConnected) return false;
+    const rect = turnEl.getBoundingClientRect();
+    if (rect.height <= 0 || rect.width <= 0) return false;
+    const viewport = this.scrollDriver.getViewportRect();
+    // buffer = 1 个 viewport 高度。mounted 语义是"附近可定位"而非"当前可见"。
+    const buffer = this.scrollDriver.getClientHeight();
+    const eligible = rect.bottom >= viewport.top - buffer
+      && rect.top <= viewport.bottom + buffer;
+    if (!eligible && DEBUG_SCAN) {
+      const turnKey = this.domAdapter.extractTurnKey(turnEl);
+      const rectInfo = { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+      const viewportInfo = { top: viewport.top, bottom: viewport.bottom, height: viewport.height };
+      console.debug('[CQN SCAN] filtered offscreen turn:', turnKey, rectInfo, viewportInfo);
+    }
+    return eligible;
+  }
 
   constructor(
     private readonly domAdapter: DomAdapter,
@@ -100,12 +127,15 @@ export class MessageScanner {
 
     const turnElements = this.domAdapter.findTurnElements();
     const candidates: ScannedMessageCandidate[] = [];
+    const eligibleTurns: HTMLElement[] = [];
     const scrollTop = this.scrollDriver.getScrollTop();
     const scanDirection = this.getScanDirection(scrollTop);
 
     for (let index = 0; index < turnElements.length; index += 1) {
       const turnEl = turnElements[index];
       if (!turnEl) continue;
+      if (!this.isDirectMountCandidateTurn(turnEl)) continue;
+      eligibleTurns.push(turnEl);
 
       const turnKey = this.domAdapter.extractTurnKey(turnEl);
       if (!turnKey) continue;
@@ -158,9 +188,6 @@ export class MessageScanner {
           textForSearch = '';
         }
 
-        console.log('[CQN] rescan: assistant anchor turnKey=', turnKey, 'turnIndex=', turnIndex,
-          'hasText=', !!text, 'preview=', preview.slice(0, 30));
-
         candidates.push({
           observedDomMessageId: null,
           text,
@@ -195,7 +222,7 @@ export class MessageScanner {
     this.rebuildMountedMaps(result, sortedCandidates);
 
     // 注册 AI turn 锚点的 DOM 元素（不参与 resolveScannedSegments 候选流程）
-    this.registerAnchorTurnElements(conversationId, result.allMessages);
+    this.registerAnchorTurnElements(conversationId, result.allMessages, eligibleTurns);
 
     this.runtimeStore.setMessages(result.allMessages);
     this.runtimeStore.setMountedState(this.mountedIds, this.elementById);
@@ -341,12 +368,10 @@ export class MessageScanner {
     this.elementById.forEach((element) => this.intersectionObserver?.observe(element));
   }
 
-  private registerAnchorTurnElements(conversationId: string, allMessages: CachedMessage[]): void {
-    // 构建 Map 避免 O(n²) 查找
+  private registerAnchorTurnElements(conversationId: string, allMessages: CachedMessage[], eligibleTurns: HTMLElement[]): void {
     const messageById = new Map(allMessages.map((m) => [m.localMessageId, m]));
-    const allTurnElements = this.domAdapter.findTurnElements();
 
-    for (const turnEl of allTurnElements) {
+    for (const turnEl of eligibleTurns) {
       const turnKey = this.domAdapter.extractTurnKey(turnEl);
       if (!turnKey) continue;
 
@@ -355,7 +380,7 @@ export class MessageScanner {
       const cached = messageById.get(localId);
       if (!cached || cached.role !== 'assistant') continue;
 
-      if (!this.elementById.has(localId) && turnEl.isConnected) {
+      if (!this.elementById.has(localId)) {
         this.elementById.set(localId, turnEl);
         this.mountedIds.add(localId);
       }

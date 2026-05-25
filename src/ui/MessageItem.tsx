@@ -51,7 +51,7 @@ function MessageItemComponent({
   }
 
   // --- 用户消息布局（保持原有行为）---
-  const metaText = isJumping ? '⟳ 跳转中…' : mounted ? '● 当前可跳转' : '○ 已缓存';
+  const metaText = isJumping ? '⟳ 跳转中…' : mounted ? '● 附近可定位' : '○ 已缓存，点击定位';
 
   const handleMouseEnter = (e: MouseEvent) => {
     const target = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.cqn-item-body');

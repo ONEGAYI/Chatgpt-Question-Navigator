@@ -31,9 +31,13 @@ function createJumpToken(): JumpToken {
   return token;
 }
 
-function decideDirection(targetOrderKey: number, visibleRange: VisibleRange | null): 'up' | 'down' {
-  if (!visibleRange) return 'down';
-  if (targetOrderKey < visibleRange.minOrderKey) return 'up';
+function decideDirection(
+  targetOrderKey: number,
+  visibleRange: VisibleRange | null,
+  ratioHint?: { target: number; current: number },
+): 'up' | 'down' {
+  if (visibleRange) return targetOrderKey < visibleRange.minOrderKey ? 'up' : 'down';
+  if (ratioHint) return ratioHint.target < ratioHint.current ? 'up' : 'down';
   return 'down';
 }
 
@@ -123,7 +127,10 @@ export class JumpController {
 
       const el = this.scanner.getElementByLocalId(target.localMessageId);
       if (el?.isConnected) {
-        return await this.landOnTarget(el, target, token, true);
+        const landed = await this.tryLandOnMounted(target, token);
+        if (landed) return true;
+        // fallthrough: 元素虽然在 DOM 中但不可真实定位，继续 progressive jump。
+        // 后续 rescan 会重建 elementById，清理 stale mapping。
       }
 
       const result = await this.scanner.rescan();
@@ -138,10 +145,9 @@ export class JumpController {
       }
 
       if (result.mountedIds.has(target.localMessageId)) {
-        const found = this.scanner.getElementByLocalId(target.localMessageId);
-        if (found?.isConnected) {
-          return await this.landOnTarget(found, target, token, true);
-        }
+        const landed = await this.tryLandOnMounted(target, token);
+        if (landed) return true;
+        // fallthrough: mountedIds 记录可能过时，继续 progressive jump。
       }
 
       if (!this.isCurrent(token)) return false;
@@ -168,12 +174,18 @@ export class JumpController {
           moved = scrollResult.moved;
           directionSource = 'ratio-seed';
         } else {
-          const direction = decideDirection(target.orderKey, result.visibleRange);
+          const direction = decideDirection(target.orderKey, result.visibleRange, {
+            target: target.lastKnownScrollRatio!,
+            current: currentRatio,
+          });
           moved = this.scrollOneChunk(direction, attempt);
           directionSource = 'fallback';
         }
       } else {
-        const direction = decideDirection(target.orderKey, result.visibleRange);
+        const ratioHint = target.lastKnownScrollRatio != null
+          ? { target: target.lastKnownScrollRatio, current: this.scrollDriver.getScrollRatio() }
+          : undefined;
+        const direction = decideDirection(target.orderKey, result.visibleRange, ratioHint);
         moved = this.scrollOneChunk(direction, attempt);
         directionSource = 'fallback';
       }
@@ -221,19 +233,6 @@ export class JumpController {
     return false;
   }
 
-  private async landOnTarget(el: HTMLElement, target: CachedMessage, token: JumpToken, smooth: boolean): Promise<boolean> {
-    if (!this.isCurrent(token)) return false;
-    this.scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: smooth ? 'smooth' : 'auto' });
-    this.highlightMessage(el);
-    if (smooth) {
-      await waitForDomSettled(400);
-      if (!this.isCurrent(token)) return false;
-    }
-    this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
-    await this.cacheStore.flush();
-    return true;
-  }
-
   private scrollOneChunk(direction: 'up' | 'down', attempt: number): boolean {
     const { jcDecayRate, jcMinDecay } = this.getProfile();
     const viewportHeight = this.scrollDriver.getClientHeight();
@@ -244,10 +243,49 @@ export class JumpController {
     return result.moved;
   }
 
-  private async jumpToMounted(target: CachedMessage, token: JumpToken): Promise<boolean> {
+  /**
+   * 尝试直接落地到已挂载的元素。scroll 后验证目标真正进入 viewport 才算成功。
+   * 返回 false 只表示 direct landing 失败，不代表整个 jump 失败。
+   * 调用方必须 fallthrough 到 progressive jump，不得 setJumpState failed 或退出。
+   */
+  private async tryLandOnMounted(target: CachedMessage, token: JumpToken): Promise<boolean> {
     const el = this.scanner.getElementByLocalId(target.localMessageId);
     if (!el?.isConnected) return false;
-    return await this.landOnTarget(el, target, token, true);
+
+    const rectBefore = el.getBoundingClientRect();
+    if (rectBefore.height <= 0 || rectBefore.width <= 0) return false;
+
+    // 使用 behavior: 'auto' 保证验证确定性。smooth 可能未完成就误判失败。
+    const scrollResult = this.scrollDriver.scrollElementIntoView(el, {
+      block: 'center',
+      behavior: 'auto',
+    });
+
+    // 保留 scrollResult 供 debug 参考，但最终成功标准以 rect + isElementInViewport 为准。
+    if (DEBUG_JUMP) {
+      console.debug('[CQN Jump] tryLandOnMounted', { scrollResult, rectBefore: { width: rectBefore.width, height: rectBefore.height } });
+    }
+
+    await waitForDomSettled(this.getProfile().jcSettleMs);
+    if (!this.isCurrent(token)) return false;
+    if (!el.isConnected) return false;
+
+    const rectAfter = el.getBoundingClientRect();
+    if (rectAfter.height <= 0 || rectAfter.width <= 0) return false;
+    if (!this.scrollDriver.isElementInViewport(el)) return false;
+
+    if (DEBUG_JUMP) {
+      console.debug('[CQN Jump] tryLandOnMounted verify', { rectAfter: { top: rectAfter.top, bottom: rectAfter.bottom, width: rectAfter.width, height: rectAfter.height }, inViewport: true });
+    }
+
+    this.highlightMessage(el);
+    this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
+    await this.cacheStore.flush();
+    return true;
+  }
+
+  private async jumpToMounted(target: CachedMessage, token: JumpToken): Promise<boolean> {
+    return await this.tryLandOnMounted(target, token);
   }
 
   private highlightMessage(el: HTMLElement): void {
