@@ -1,4 +1,4 @@
-import type { ResolveResult, ScanResult, ScannedUserMessageCandidate, VisibleRange } from '../shared/types';
+import type { CachedUserMessage, ResolveResult, ScanResult, ScannedUserMessageCandidate, VisibleRange } from '../shared/types';
 import { hashText } from '../shared/hash';
 import { toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
@@ -123,6 +123,10 @@ export class MessageScanner {
     this.lastScanScrollTop = scrollTop;
 
     this.rebuildMountedMaps(result, sortedCandidates);
+
+    // 注册 AI turn 锚点的 DOM 元素（不参与 resolveScannedSegments 候选流程）
+    this.registerAnchorTurnElements(conversationId, result.allMessages);
+
     this.runtimeStore.setMessages(result.allMessages);
     this.runtimeStore.setMountedState(this.mountedIds, this.elementById);
     this.reobserveMountedElements();
@@ -251,10 +255,36 @@ export class MessageScanner {
     this.elementById.forEach((element) => this.intersectionObserver?.observe(element));
   }
 
+  private registerAnchorTurnElements(conversationId: string, allMessages: CachedUserMessage[]): void {
+    // 构建 Map 避免 O(n²) 查找
+    const messageById = new Map(allMessages.map((m) => [m.localMessageId, m]));
+    const allTurnElements = this.domAdapter.findTurnElements();
+
+    for (const turnEl of allTurnElements) {
+      const turnKey = this.domAdapter.extractTurnKey(turnEl);
+      if (!turnKey) continue;
+
+      const localId = `${conversationId}::turn::${turnKey}`;
+      // 只注册已在缓存中的 AI 消息；用户消息已通过 rebuildMountedMaps 处理
+      const cached = messageById.get(localId);
+      if (!cached || cached.role !== 'assistant') continue;
+
+      if (!this.elementById.has(localId) && turnEl.isConnected) {
+        this.elementById.set(localId, turnEl);
+        this.mountedIds.add(localId);
+      }
+    }
+  }
+
   private computeActiveMessageId(): string | null {
+    const snapshot = this.runtimeStore.getSnapshot();
     const viewport = this.scrollDriver.getViewportRect();
+    const messageById = new Map(snapshot.messages.map((m) => [m.localMessageId, m]));
+
+    const isUserElement = (id: string): boolean => messageById.get(id)?.role === 'user';
 
     const entries = Array.from(this.elementById.entries())
+      .filter(([id]) => isUserElement(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.bottom >= viewport.top && rect.top <= viewport.bottom);
 
@@ -264,6 +294,7 @@ export class MessageScanner {
     if (visibleBelowTop) return visibleBelowTop.id;
 
     const nearestAbove = Array.from(this.elementById.entries())
+      .filter(([id]) => isUserElement(id))
       .map(([id, element]) => ({ id, rect: element.getBoundingClientRect() }))
       .filter(({ rect }) => rect.top < viewport.top)
       .sort((a, b) => b.rect.top - a.rect.top)[0];
