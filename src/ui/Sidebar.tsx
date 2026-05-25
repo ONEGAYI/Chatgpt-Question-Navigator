@@ -94,11 +94,12 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
+  const userMessages = useMemo(() => snapshot.messages.filter((m) => m.role === 'user'), [snapshot.messages]);
   const messages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return snapshot.messages;
-    return snapshot.messages.filter((message) => message.textForSearch.toLowerCase().includes(query));
-  }, [snapshot.messages, searchQuery]);
+    if (!query) return userMessages;
+    return userMessages.filter((message) => message.textForSearch.toLowerCase().includes(query));
+  }, [userMessages, searchQuery]);
 
   const handleJump = (target: CachedUserMessage) => void jumpController.jumpToMessage(target);
 
@@ -145,7 +146,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return (
       <>
         <MiniBar
-          messages={snapshot.messages}
+          messages={userMessages}
           activeMessageId={snapshot.activeMessageId}
           mountedIds={snapshot.mountedIds}
           onJump={handleJump}
@@ -222,7 +223,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
 
         {!clearing && (
           <div className="cqn-status">
-            {getStatusText(collectPhase, snapshot.autoCollectProgress, snapshot.messages.length)}
+            {getStatusText(collectPhase, snapshot.autoCollectProgress, userMessages.length)}
           </div>
         )}
 
