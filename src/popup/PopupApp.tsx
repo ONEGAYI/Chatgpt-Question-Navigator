@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
+import type { ScrollProfileName } from '../shared/scrollProfile';
+import { SCROLL_PROFILE_ORDER, PROFILE_STORAGE_KEY } from '../shared/scrollProfile';
 
 interface ConversationInfo {
   id: string;
@@ -15,6 +17,12 @@ interface ToastState {
   message: string;
   key: number;
 }
+
+const PROFILE_LABELS: Record<ScrollProfileName, string> = {
+  default: '标准',
+  fast: '快速',
+  turbo: '极速',
+};
 
 const STORAGE_LIMIT = 8 * 1024 * 1024;
 const META_KEY = 'meta';
@@ -86,6 +94,7 @@ export function PopupApp() {
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [operating, setOperating] = useState(false);
+  const [profile, setProfile] = useState<ScrollProfileName>('default');
 
   const refresh = useCallback(async () => {
     try {
@@ -98,6 +107,12 @@ export function PopupApp() {
 
   useEffect(() => {
     refresh();
+    chrome.storage.local.get(PROFILE_STORAGE_KEY).then((result) => {
+      const saved = result[PROFILE_STORAGE_KEY] as ScrollProfileName | undefined;
+      if (saved && SCROLL_PROFILE_ORDER.includes(saved)) {
+        setProfile(saved);
+      }
+    });
   }, [refresh]);
 
   const showToast = (message: string) => {
@@ -168,6 +183,20 @@ export function PopupApp() {
     }
   };
 
+  const handleProfileChange = async (name: ScrollProfileName) => {
+    setProfile(name);
+    await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: name });
+    try {
+      await sendMessage({ type: 'SET_SCROLL_PROFILE', name });
+    } catch {
+      // Content script may not be running — storage is the source of truth
+    }
+  };
+
+  const handleProfileReset = () => {
+    handleProfileChange('default');
+  };
+
   if (loading) {
     return <div class="popup"><div class="loading">加载中...</div></div>;
   }
@@ -198,6 +227,28 @@ export function PopupApp() {
             style={`width: ${usagePercent.toFixed(1)}%`}
           />
         </div>
+      </div>
+
+      <div class="divider" />
+
+      <div class="profile-section">
+        <div class="section-title">滚屏速率</div>
+        <div class="profile-options">
+          {SCROLL_PROFILE_ORDER.map((name) => (
+            <button
+              key={name}
+              class={`profile-btn ${profile === name ? 'is-active' : ''}`}
+              onClick={() => handleProfileChange(name)}
+            >
+              {PROFILE_LABELS[name]}
+            </button>
+          ))}
+        </div>
+        {profile !== 'default' && (
+          <button class="profile-reset" onClick={handleProfileReset}>
+            重置为标准
+          </button>
+        )}
       </div>
 
       {info && info.conversations.length > 0 && (
