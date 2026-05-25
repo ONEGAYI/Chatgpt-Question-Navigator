@@ -143,8 +143,15 @@ export class JumpController {
 
       let moved = false;
       if (attempt === 0 && target.lastKnownScrollRatio != null && Number.isFinite(target.lastKnownScrollRatio)) {
-        const scrollResult = this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
-        moved = scrollResult.moved;
+        const currentRatio = this.scrollDriver.getScrollRatio();
+        const ratioDiff = target.lastKnownScrollRatio - currentRatio;
+        if (Math.abs(ratioDiff) > 0.02) {
+          const scrollResult = this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
+          moved = scrollResult.moved;
+        } else {
+          const direction = decideDirection(target.orderKey, result.visibleRange);
+          moved = this.scrollOneChunk(direction, attempt);
+        }
       } else {
         const direction = decideDirection(target.orderKey, result.visibleRange);
         moved = this.scrollOneChunk(direction, attempt);
