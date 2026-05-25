@@ -40,7 +40,9 @@ function MessageItemComponent({
         onMouseEnter={handleAiMouseEnter}
         onMouseLeave={onHoverEnd}
       >
-        <span className="cqn-tree-connector" aria-hidden="true">{'│\n└─'}</span>
+        <svg className="cqn-tree-connector" width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
+          <path d="M6 0v14M6 14h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
         <span className="cqn-item-ai-body">
           <span className="cqn-item-ai-label">{label}</span>
           <span className="cqn-item-ai-preview">

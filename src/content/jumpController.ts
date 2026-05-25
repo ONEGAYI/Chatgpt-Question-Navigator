@@ -80,10 +80,13 @@ export class JumpController {
       return found;
     } catch (e) {
       if (this.isCurrent(token)) {
+        const msg = e instanceof Error ? e.message : String(e);
         this.runtimeStore.setJumpState({
           status: 'failed',
           targetId: target.localMessageId,
-          reason: `跳转异常: ${e instanceof Error ? e.message : String(e)}`,
+          reason: msg.includes('Extension context invalidated')
+            ? '扩展已更新，请刷新页面后重试'
+            : `跳转异常: ${msg}`,
         });
       }
       this.clearToken(token);
@@ -224,8 +227,12 @@ export class JumpController {
       await waitForDomSettled(400);
       if (!this.isCurrent(token)) return false;
     }
-    this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
-    await this.cacheStore.flush();
+    try {
+      this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
+      await this.cacheStore.flush();
+    } catch {
+      // Extension context invalidated — visual jump already succeeded
+    }
     return true;
   }
 

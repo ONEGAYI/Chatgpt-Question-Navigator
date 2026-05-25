@@ -204,15 +204,10 @@
 }
 
 .cqn-tree-connector {
-  width: 28px;
   flex-shrink: 0;
   padding-top: 6px;
   color: var(--cqn-accent);
   opacity: 0.6;
-  font-size: 13px;
-  line-height: 1;
-  white-space: pre;
-  user-select: none;
 }
 
 .cqn-item-ai-body {
