@@ -9,11 +9,11 @@ chatgpt-question-navigator/
 │       └── main.tsx                # Preact 挂载点，渲染 PopupApp
 ├── src/
 │   ├── content/
-│   │   ├── autoCollector.ts        # 自动 bottom-to-top 采集，按钮触发，生成 canonical 顺序
+│   │   ├── autoCollector.ts        # 自动 bottom-to-top 采集，按钮触发，生成 canonical 顺序（含 AI 锚点）
 │   │   ├── cacheStore.ts           # chrome.storage.local 持久化，按会话缓存消息，LRU 清理
 │   │   ├── domAdapter.ts           # ChatGPT DOM 结构查询抽象，选择器集中定义
 │   │   ├── jumpController.ts       # 跳转控制：已挂载直接跳转 + 未挂载渐进式跳转（JumpToken 可取消）
-│   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver
+│   │   ├── messageScanner.ts       # 核心扫描引擎，MutationObserver + IntersectionObserver + AI turn 锚点注册
 │   │   ├── orderList.ts            # 有序 ID 分段合并算法（contiguous/detached 段合并 + 方向推断）
 │   │   ├── runtimeStore.ts         # 内存响应式状态，subscribe/emit 驱动 UI
 │   │   ├── scrollDriver.ts         # 滚动基础设施：多源 root 检测 + 评分验证 + 操作结果 + viewport + 方向捕获 + 诊断

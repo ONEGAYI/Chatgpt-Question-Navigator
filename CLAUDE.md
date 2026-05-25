@@ -51,8 +51,8 @@ Popup → Content Script 通信协议：
 |------|------|
 | `AutoCollector` | Skeleton-First Hydration 采集。三阶段流程：(1) scanAllTurnSkeletons 扫描所有 turn 骨架；(2) bottom-to-top 滚动逐帧水合（角色+文本提取）；(3) 可选 fallback top-to-bottom 补充水合。完成后通过 CacheStore.replaceConversationMessages() 原子替换缓存（canonical 顺序）。支持 cancel、跨 reload 恢复（intent 持久化）、每 20 轮 checkpoint 增量持久化 |
 | `DomAdapter` | ChatGPT DOM 结构查询抽象。选择器定义在此文件顶部 `SELECTORS` 常量。仅负责 DOM 元素识别和文本提取，不涉及滚动 |
-| `MessageScanner` | 核心扫描引擎。通过 MutationObserver（防抖 500ms）和 IntersectionObserver 监控 DOM 变化，将候选消息交给 CacheStore 去重合并。候选生成时通过 DomAdapter.findTurnKeyForElement 提取 turnKey |
-| `CacheStore` | `chrome.storage.local` 持久化层。按 `conv:{id}` 分会话存储，LRU 清理（上限 8MB），防抖保存（2s）。`resolveScannedSegments` 是核心分段合并方法，`replaceConversationMessages` 用于 canonical 模式原子写入。localMessageId 优先使用 turn-based 格式 |
+| `MessageScanner` | 核心扫描引擎。通过 MutationObserver（防抖 500ms）和 IntersectionObserver 监控 DOM 变化，将候选消息交给 CacheStore 去重合并。候选生成时通过 DomAdapter.findTurnKeyForElement 提取 turnKey。rescan 时注册 AI turn 锚点元素到 elementById（扩展 visibleRange），computeActiveMessageId 限制为 user 消息 |
+| `CacheStore` | `chrome.storage.local` 持久化层。按 `conv:{id}` 分会话存储，LRU 清理（上限 8MB），防抖保存（2s）。`resolveScannedSegments` 是核心分段合并方法，`replaceConversationMessages` 用于 canonical 模式原子写入。localMessageId 优先使用 turn-based 格式。缓存同时包含 user 和 assistant 消息（AI 锚点） |
 | `orderList` | 有序 ID 分段合并算法。`mergeOrderedSegments` 处理 contiguous/detached 段的 anchor-splice 合并，`inferDirectionFromScrollAnchor` 从滚动元数据推断扫描方向 |
 | `RuntimeStore` | 内存中的响应式状态。通过 subscribe/emit 模式驱动 Preact UI 更新。包含 autoCollectProgress 状态 |
 | `UrlWatcher` | 监听 SPA 路由变化（patch history API + popstate + 轮询），提取 conversationId 或分配临时 ID |
@@ -115,6 +115,7 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 - **跳转取消**：用户手动滚动（wheel/touch/keyboard/pointerdown）、Esc 键、或点击新目标时自动取消当前跳转。通过 JumpToken 实现可取消异步操作
 - **VisibleRange 基于 orderKey**：`minOrderKey/maxOrderKey` 来自 RuntimeStore.messages 中可见消息的 orderKey 字段
 - **构建产物**：`.output/` 目录，`chrome-mv3` 为生产构建，`chrome-mv3-dev` 为开发构建
+- **AI 锚点消息**：缓存中同时包含 `role: 'user'` 和 `role: 'assistant'` 消息。AI 消息作为隐藏锚点参与 `visibleRange` 计算但不显示在 UI 中，也不参与 activeMessageId 计算。`CachedUserMessage` 命名待重命名为 `CachedMessage`（#12）
 
 ## 文件树
 
