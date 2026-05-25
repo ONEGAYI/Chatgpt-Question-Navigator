@@ -170,7 +170,12 @@ export class MessageScanner {
     if (this.scrollTimer !== null) return;
     this.scrollTimer = window.setTimeout(() => {
       this.scrollTimer = null;
+      const snapshot = this.runtimeStore.getSnapshot();
+      const userIds = new Set(
+        snapshot.messages.filter(m => m.role === 'user').map(m => m.localMessageId)
+      );
       for (const localId of this.mountedIds) {
+        if (!userIds.has(localId)) continue;
         const el = this.elementById.get(localId);
         if (el && this.scrollDriver.isElementInViewport(el)) {
           this.updateScrollMeta(localId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
@@ -317,6 +322,7 @@ export class MessageScanner {
   private computeVisibleRange(): VisibleRange | null {
     const snapshot = this.runtimeStore.getSnapshot();
     const visibleOrderKeys = snapshot.messages
+      .filter((message) => message.role === 'user')
       .filter((message) => {
         const element = this.elementById.get(message.localMessageId);
         return element ? this.scrollDriver.isElementInViewport(element) : false;
