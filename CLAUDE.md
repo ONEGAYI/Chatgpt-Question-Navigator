@@ -67,7 +67,8 @@ Popup → Content Script 通信协议：
 使用 Preact 在 Shadow DOM 内渲染，样式通过 `src/ui/styles.css` 注入（CSS 变量控制暗色/亮色主题）。
 
 - `ShadowRootApp.tsx` — 挂载点，通过 WXT 的 `createShadowRootUi` 创建隔离容器
-- `Sidebar.tsx` — 主组件，三态模式切换（展开/Mini/折叠），从 RuntimeStore 订阅状态。展开模式含清除当前会话缓存按钮（二次确认）。消息列表含 user + assistant 消息（Q/A 编号），搜索作用于全部消息
+- `Sidebar.tsx` — 主组件，三态模式切换（展开/Mini/折叠），从 RuntimeStore 订阅状态。展开模式含清除当前会话缓存按钮（二次确认）、左侧拖拽手柄调宽（useResize hook，240-560px，持久化到 chrome.storage）。消息列表含 user + assistant 消息（Q/A 编号），搜索作用于全部消息
+- `useResize.ts` — 拖拽调宽 hook。封装 mousedown/mousemove/mouseup 拖拽逻辑，返回 `{ width, isResizing, dragHandleProps }`。宽度通过 CSS 变量 `--cqn-sidebar-width` 驱动侧栏及内部元素自适应。mouseup 时持久化到 chrome.storage.local
 - `MiniBar.tsx` — Mini 模式导航条：滑动窗口（MAX_VISIBLE=10）渲染 user 横条 + AI 缩细条标记，▲/▼ 导航仅移动 Q 标记，hover preview 显示 Q/A 编号
 - `MessageItem.tsx` — 单条消息项。user 消息：搜索高亮 + hover 预览 + 跳转状态；assistant 消息：树状 SVG 连接器 + 引用块布局（纯视觉，通过 isAssistant prop 切换）
 - `SearchBox.tsx` — 搜索输入（300ms 防抖）

@@ -32,8 +32,9 @@ chatgpt-question-navigator/
 │       ├── MiniBar.tsx              # Mini 模式导航条，滑动窗口（MAX_VISIBLE=10）user 横条 + AI 缩细条，▲/▼ 仅移动 Q
 │       ├── SearchBox.tsx            # 搜索输入框（300ms 防抖）
 │       ├── ShadowRootApp.tsx        # Shadow DOM 挂载入口
-│       ├── Sidebar.tsx              # 主组件，三态切换（展开/Mini/折叠），Q/A 编号消息列表 + 搜索
-│       └── styles.css               # Shadow DOM 内样式，CSS 变量支持暗色/亮色
+│       ├── Sidebar.tsx              # 主组件，三态切换（展开/Mini/折叠），Q/A 编号消息列表 + 搜索 + 可调宽度
+│       ├── useResize.ts             # 拖拽调宽 hook，mousedown/mousemove/mouseup + chrome.storage 持久化
+│       └── styles.css               # Shadow DOM 内样式，CSS 变量支持暗色/亮色，拖拽手柄样式
 ├── docs/
 │   ├── Tree.md                      # 本文件
 │   ├── 项目脚手架及二阶段计划.md       # 完整功能规格与分阶段计划
