@@ -3,12 +3,12 @@ import type { CacheStore } from './cacheStore';
 import type { MessageScanner } from './messageScanner';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
+import type { ScrollProfile } from '../shared/scrollProfile';
 
 const HIGHLIGHT_CLASS = 'cqn-target-highlight';
 const HIGHLIGHT_MS = 1500;
 const STYLE_ID = 'cqn-highlight-style';
 export const MAX_ATTEMPTS = 200;
-const SETTLE_MS = 500;
 const MAX_CONSECUTIVE_NOOPS = 3;
 const DEBUG_JUMP = false;
 
@@ -48,7 +48,12 @@ export class JumpController {
     private readonly scanner: MessageScanner,
     private readonly cacheStore: CacheStore,
     private readonly scrollDriver: ScrollDriver,
-    private readonly runtimeStore: RuntimeStore
+    private readonly runtimeStore: RuntimeStore,
+    private readonly getProfile: () => ScrollProfile = () => ({
+      name: 'default' as const, label: '标准',
+      acScrollStepRatio: 0.7, acSettleStableMs: 500, acSettleQuietMs: 400, acSettlePollMs: 100,
+      jcSettleMs: 500, jcDecayRate: 0.03, jcMinDecay: 0.3,
+    }),
   ) {}
 
   private isCurrent(token: JumpToken): boolean {
@@ -203,7 +208,7 @@ export class JumpController {
         }
       }
 
-      await waitForDomSettled(SETTLE_MS);
+      await waitForDomSettled(this.getProfile().jcSettleMs);
     }
 
     if (this.isCurrent(token)) {
@@ -230,8 +235,9 @@ export class JumpController {
   }
 
   private scrollOneChunk(direction: 'up' | 'down', attempt: number): boolean {
+    const { jcDecayRate, jcMinDecay } = this.getProfile();
     const viewportHeight = this.scrollDriver.getClientHeight();
-    const decay = Math.max(0.3, 1 - attempt * 0.03);
+    const decay = Math.max(jcMinDecay, 1 - attempt * jcDecayRate);
     const step = viewportHeight * decay;
     const deltaY = direction === 'up' ? -step : step;
     const result = this.scrollDriver.scrollBy(deltaY);
