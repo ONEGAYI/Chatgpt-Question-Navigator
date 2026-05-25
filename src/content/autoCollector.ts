@@ -280,10 +280,10 @@ export class AutoCollector {
       const assistantEl = el.querySelector<HTMLElement>('[data-message-author-role="assistant"]');
       const text = assistantEl ? this.domAdapter.extractText(assistantEl) : '';
       if (text) {
-        // hash 基于 raw 文本截断，与 toAiSearchText（normalize 后截断）的输入可能不同
-        frame.textHash = await hashText(text.slice(0, 500));
+        const search = toAiSearchText(text);
+        frame.textHash = await hashText(search);
         frame.preview = toAiPreview(text);
-        frame.textForSearch = toAiSearchText(text);
+        frame.textForSearch = search;
       } else {
         // 文本不可提取时使用 turnKey 派生 hash，确保 anchor 一定生成
         frame.textHash = await hashText(`assistant:${frame.turnKey}`);
