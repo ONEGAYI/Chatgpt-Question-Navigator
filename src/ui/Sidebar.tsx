@@ -7,6 +7,7 @@ import { JumpToast } from './JumpToast';
 import { MessageItem } from './MessageItem';
 import { MiniBar } from './MiniBar';
 import { SearchBox } from './SearchBox';
+import { useResize } from './useResize';
 
 type SidebarMode = 'expanded' | 'mini' | 'collapsed';
 
@@ -59,6 +60,12 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
   const [mode, setMode] = useState<SidebarMode>('expanded');
   const [modeLoaded, setModeLoaded] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const { width: sidebarWidth, isResizing, dragHandleProps } = useResize({
+    storageKey: 'cqn-sidebar-width',
+    defaultWidth: 280,
+    minWidth: 240,
+    maxWidth: 560,
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [hover, setHover] = useState<HoverState | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -172,7 +179,11 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
   // --- 展开模式 ---
   return (
     <>
-      <aside className="cqn-sidebar">
+      <aside
+        className={`cqn-sidebar${isResizing ? ' is-resizing' : ''}`}
+        style={{ '--cqn-sidebar-width': `${sidebarWidth}px` } as any}
+      >
+        <div className="cqn-resize-handle" {...dragHandleProps} />
         <header className="cqn-header">
           <strong>ChatGPT Navigator</strong>
           <div style={{ display: 'flex', gap: '4px' }}>
