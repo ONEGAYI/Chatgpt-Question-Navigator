@@ -1,4 +1,5 @@
 import type { AutoCollectProgress, CachedMessage, JumpState, RuntimeState } from '../shared/types';
+import type { ScrollProfileName } from '../shared/scrollProfile';
 
 export class RuntimeStore {
   private state: RuntimeState = {
@@ -9,6 +10,7 @@ export class RuntimeStore {
     activeMessageId: null,
     jumpState: { status: 'idle' },
     autoCollectProgress: null,
+    scrollProfileName: 'turbo',
   };
 
   private listeners = new Set<() => void>();
@@ -69,6 +71,11 @@ export class RuntimeStore {
 
   setAutoCollectProgress(progress: AutoCollectProgress | null): void {
     this.state = { ...this.state, autoCollectProgress: progress };
+    this.emit();
+  }
+
+  setScrollProfile(name: ScrollProfileName): void {
+    this.state = { ...this.state, scrollProfileName: name };
     this.emit();
   }
 

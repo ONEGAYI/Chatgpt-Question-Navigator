@@ -8,6 +8,8 @@ import { MessageScanner } from '../src/content/messageScanner';
 import { RuntimeStore } from '../src/content/runtimeStore';
 import { ScrollDriver } from '../src/content/scrollDriver';
 import { UrlWatcher } from '../src/content/urlWatcher';
+import { getScrollProfile, PROFILE_STORAGE_KEY, SCROLL_PROFILE_ORDER } from '../src/shared/scrollProfile';
+import type { ScrollProfileName } from '../src/shared/scrollProfile';
 import { createShadowRootApp } from '../src/ui/ShadowRootApp';
 
 export default defineContentScript({
@@ -19,12 +21,14 @@ export default defineContentScript({
     const scrollDriver = new ScrollDriver();
     const runtimeStore = new RuntimeStore();
     const urlWatcher = new UrlWatcher(domAdapter);
+    // ScrollProfile: 从 RuntimeStore 动态读取当前 profile
+    const getProfile = () => getScrollProfile(runtimeStore.getSnapshot().scrollProfileName);
     const scanner = new MessageScanner(domAdapter, cacheStore, scrollDriver, runtimeStore);
-    const jumpController = new JumpController(scanner, cacheStore, scrollDriver, runtimeStore);
+    const jumpController = new JumpController(scanner, cacheStore, scrollDriver, runtimeStore, getProfile);
     const autoCollector = new AutoCollector(domAdapter, cacheStore, scrollDriver, runtimeStore, async () => {
       scanner.clearState();
       await scanner.rescan();
-    });
+    }, getProfile);
 
     const clearCurrentSession = async (): Promise<void> => {
       const { conversationId } = runtimeStore.getSnapshot();
@@ -84,6 +88,13 @@ export default defineContentScript({
       await AutoCollector.clearIntent();
     }
 
+    // 恢复持久化的 ScrollProfile 选择
+    const profileResult = await chrome.storage.local.get(PROFILE_STORAGE_KEY);
+    const savedProfile = profileResult[PROFILE_STORAGE_KEY] as ScrollProfileName | undefined;
+    if (savedProfile && SCROLL_PROFILE_ORDER.includes(savedProfile)) {
+      runtimeStore.setScrollProfile(savedProfile);
+    }
+
     scrollDriver.init();
     urlWatcher.start();
 
@@ -135,6 +146,18 @@ export default defineContentScript({
     };
     window.addEventListener('keydown', onDebugKey);
 
+    const onProfileSwitchKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+        const current = runtimeStore.getSnapshot().scrollProfileName;
+        const idx = SCROLL_PROFILE_ORDER.indexOf(current);
+        const next = SCROLL_PROFILE_ORDER[(idx + 1) % SCROLL_PROFILE_ORDER.length]!;
+        runtimeStore.setScrollProfile(next);
+        chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: next });
+        console.log(`[CQN] ScrollProfile switched to: ${next}`);
+      }
+    };
+    window.addEventListener('keydown', onProfileSwitchKey);
+
     // 用户滚动取消进行中的跳转
     scrollDriver.onUserScroll(() => jumpController.cancelCurrent());
 
@@ -147,6 +170,7 @@ export default defineContentScript({
     window.addEventListener('beforeunload', () => {
       if (pollId !== undefined) clearInterval(pollId);
       window.removeEventListener('keydown', onDebugKey);
+      window.removeEventListener('keydown', onProfileSwitchKey);
       window.removeEventListener('keydown', onCancelJump);
       void cacheStore.flush();
       scanner.stop();
@@ -192,6 +216,19 @@ export default defineContentScript({
         }
         sendResponse({ success: false, error: 'No active conversation' });
         return false;
+      }
+
+      if (msg.type === 'SET_SCROLL_PROFILE') {
+        const name = msg.name as ScrollProfileName;
+        if (SCROLL_PROFILE_ORDER.includes(name)) {
+          runtimeStore.setScrollProfile(name);
+          chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: name }).then(() => {
+            sendResponse({ success: true });
+          }).catch((err) => sendResponse({ success: false, error: String(err) }));
+        } else {
+          sendResponse({ success: false, error: 'Invalid profile name' });
+        }
+        return true;
       }
     });
 

@@ -5,16 +5,13 @@ import type { CacheStore } from './cacheStore';
 import type { DomAdapter } from './domAdapter';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
+import type { ScrollProfile } from '../shared/scrollProfile';
+import { AC_SETTLE_TIMEOUT_MS } from '../shared/scrollProfile';
 
 // --- Constants ---
 
 const INTENT_KEY = 'cqn-auto-collect-intent';
 const MAX_ROUNDS = 500;
-const SCROLL_STEP_RATIO = 0.7; // 固定步长，方便调试和复现
-const SETTLE_STABLE_MS = 500;
-const SETTLE_QUIET_MS = 400;
-const SETTLE_TIMEOUT_MS = 5000;
-const SETTLE_POLL_MS = 100;
 const STAGNANT_LIMIT = 3;
 const NO_MOVEMENT_LIMIT = 5;
 const FALLBACK_MAX_ROUNDS = 50;
@@ -39,6 +36,11 @@ export class AutoCollector {
     private readonly scrollDriver: ScrollDriver,
     private readonly runtimeStore: RuntimeStore,
     private readonly afterReplace?: () => Promise<void>,
+    private readonly getProfile: () => ScrollProfile = () => ({
+      name: 'default' as const, label: '标准',
+      acScrollStepRatio: 0.7, acSettleStableMs: 500, acSettleQuietMs: 400, acSettlePollMs: 100,
+      jcSettleMs: 500, jcDecayRate: 0.03, jcMinDecay: 0.3,
+    }),
   ) {}
 
   // --- Public API ---
@@ -133,7 +135,7 @@ export class AutoCollector {
         if (scrollTop <= 8 && stagnantRounds >= STAGNANT_LIMIT) break;
 
         // Scroll up
-        const step = Math.floor(this.scrollDriver.getClientHeight() * SCROLL_STEP_RATIO);
+        const step = Math.floor(this.scrollDriver.getClientHeight() * this.getProfile().acScrollStepRatio);
         const beforeTop = this.scrollDriver.getScrollTop();
         this.scrollDriver.scrollBy(-step);
         await this.waitForPageSettled();
@@ -370,7 +372,7 @@ export class AutoCollector {
       if (this.frames.size - hydratedAfter === 0) break;
       if (stagnantRounds >= STAGNANT_LIMIT) break;
 
-      const step = Math.floor(this.scrollDriver.getClientHeight() * SCROLL_STEP_RATIO);
+      const step = Math.floor(this.scrollDriver.getClientHeight() * this.getProfile().acScrollStepRatio);
       const beforeTop = this.scrollDriver.getScrollTop();
       this.scrollDriver.scrollBy(step);
       await this.waitForPageSettled();
@@ -408,6 +410,7 @@ export class AutoCollector {
   // --- Internal: Page settle detection ---
 
   private async waitForPageSettled(): Promise<void> {
+    const profile = this.getProfile();
     const start = Date.now();
     let lastMutationTime = Date.now();
     let lastScrollTop = this.scrollDriver.getScrollTop();
@@ -419,7 +422,7 @@ export class AutoCollector {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
     try {
-      await this.delay(SETTLE_POLL_MS);
+      await this.delay(profile.acSettlePollMs);
 
       while (true) {
         if (this.cancelRequested) return;
@@ -432,13 +435,13 @@ export class AutoCollector {
           stableSince = now;
         }
 
-        const scrollStable = (now - stableSince) >= SETTLE_STABLE_MS;
-        const domQuiet = (now - lastMutationTime) >= SETTLE_QUIET_MS;
-        const timeout = (now - start) >= SETTLE_TIMEOUT_MS;
+        const scrollStable = (now - stableSince) >= profile.acSettleStableMs;
+        const domQuiet = (now - lastMutationTime) >= profile.acSettleQuietMs;
+        const timeout = (now - start) >= AC_SETTLE_TIMEOUT_MS;
 
         if ((scrollStable && domQuiet) || timeout) return;
 
-        await this.delay(SETTLE_POLL_MS);
+        await this.delay(profile.acSettlePollMs);
       }
     } finally {
       observer.disconnect();

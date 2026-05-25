@@ -23,6 +23,7 @@ chatgpt-question-navigator/
 │   │   └── popup.css               # Popup 样式，复用侧栏 CSS 变量体系
 │   ├── shared/
 │   │   ├── hash.ts                 # SHA-256 文本指纹（前 8 字节）
+│   │   ├── scrollProfile.ts        # ScrollProfile 类型、default/fast/turbo 三档预置速率参数
 │   │   ├── text.ts                 # 文本归一化、截断预览、搜索分词高亮
 │   │   └── types.ts                # 全局类型定义（CachedMessage, RuntimeState 等）
 │   └── ui/
