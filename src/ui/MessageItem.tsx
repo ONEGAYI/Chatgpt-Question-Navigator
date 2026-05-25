@@ -33,7 +33,14 @@ function MessageItemComponent({
         <span className="cqn-item-ai-body">
           <span className="cqn-item-ai-label">{label}</span>
           <span className="cqn-item-ai-preview">
-            {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
+            {message.preview
+              ? parts.map((part, i) => part.match
+                ? <mark key={i}>{part.text}</mark>
+                : <span key={i}>{part.text}</span>)
+              : <span className="cqn-streaming-dots" aria-label="AI 正在生成">
+                  <span /><span /><span />
+                </span>
+            }
           </span>
         </span>
       </div>

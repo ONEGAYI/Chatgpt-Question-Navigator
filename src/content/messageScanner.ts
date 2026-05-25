@@ -9,6 +9,7 @@ import type { ScrollDriver } from './scrollDriver';
 import type { UserScrollDirection } from './scrollDriver';
 
 const MUTATION_DEBOUNCE_MS = 500;
+const STREAMING_DEBOUNCE_MS = 3000;
 const SCROLL_THROTTLE_MS = 300;
 const MIN_SEGMENT_GAP_PX = 320;
 
@@ -39,7 +40,7 @@ export class MessageScanner {
   ) {}
 
   start(): void {
-    this.mutationObserver = new MutationObserver(() => this.scheduleRescan());
+    this.mutationObserver = new MutationObserver((records) => this.handleMutations(records));
     this.mutationObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     this.cleanupScroll = this.scrollDriver.onScroll(() => this.scheduleScrollCapture());
     this.cleanupUserScroll = this.scrollDriver.onUserScroll((direction) => this.captureUserScrollDirection(direction));
@@ -90,8 +91,6 @@ export class MessageScanner {
     const candidates: ScannedMessageCandidate[] = [];
     const scrollTop = this.scrollDriver.getScrollTop();
     const scanDirection = this.getScanDirection(scrollTop);
-
-    console.log('[CQN] rescan: found turns=', turnElements.length, 'scrollTop=', scrollTop, 'direction=', scanDirection);
 
     for (let index = 0; index < turnElements.length; index += 1) {
       const turnEl = turnElements[index];
@@ -168,10 +167,6 @@ export class MessageScanner {
       }
     }
 
-    console.log('[CQN] rescan: candidates=', candidates.length,
-      'user=', candidates.filter(c => c.role === 'user').length,
-      'assistant=', candidates.filter(c => c.role === 'assistant').length);
-
     const candidateSegments = this.createCandidateSegments(candidates, scanDirection);
     const sortedCandidates = candidateSegments.flatMap((segment) => segment.candidates);
     const result = await this.cacheStore.resolveScannedSegments(
@@ -192,10 +187,6 @@ export class MessageScanner {
     this.runtimeStore.setMessages(result.allMessages);
     this.runtimeStore.setMountedState(this.mountedIds, this.elementById);
     this.reobserveMountedElements();
-
-    console.log('[CQN] rescan: mounted=', this.mountedIds.size,
-      'elementById=', this.elementById.size,
-      'newOrUpdated=', result.newOrUpdated.length);
 
     const activeMessageId = this.computeActiveMessageId();
     this.runtimeStore.setActiveMessageId(activeMessageId);
@@ -224,11 +215,28 @@ export class MessageScanner {
     this.cacheStore.updateMessageScrollMeta(target.localMessageId, scrollTop, scrollRatio);
   }
 
-  private scheduleRescan(): void {
+  private handleMutations(records: MutationRecord[]): void {
+    const TURN_SELECTOR = 'section[data-testid^="conversation-turn-"]';
+    const hasNewTurn = records.some((record) =>
+      Array.from(record.addedNodes).some((node) =>
+        node instanceof HTMLElement
+        && (node.matches?.(TURN_SELECTOR) || node.querySelector?.(TURN_SELECTOR))
+      )
+    );
+
+    if (hasNewTurn) {
+      this.scheduleRescan();
+    } else {
+      this.scheduleRescan(STREAMING_DEBOUNCE_MS);
+    }
+  }
+
+  private scheduleRescan(debounceMs: number = MUTATION_DEBOUNCE_MS): void {
     if (this.mutationTimer !== null) window.clearTimeout(this.mutationTimer);
     this.mutationTimer = window.setTimeout(() => {
+      this.mutationTimer = null;
       void this.rescan().catch((error) => console.warn('[ChatGPT Navigator] rescan failed', error));
-    }, MUTATION_DEBOUNCE_MS);
+    }, debounceMs);
   }
 
   private scheduleScrollCapture(): void {

@@ -98,11 +98,13 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
           const isMounted = mountedIds.has(message.localMessageId);
           const stateClass = isActive ? 'is-active' : isMounted ? 'is-mounted' : 'is-cached';
           const isAi = message.role === 'assistant';
+          const isStreaming = isAi && !message.preview;
+          const streamClass = isStreaming ? ' is-streaming' : '';
 
           return (
             <button
               key={message.localMessageId}
-              className={`cqn-mini-mark${isAi ? '-ai' : ''} ${stateClass}`}
+              className={`cqn-mini-mark${isAi ? '-ai' : ''} ${stateClass}${streamClass}`}
               type="button"
               onClick={() => onJump(message)}
               onMouseEnter={(e) => handleMarkHover(e, message, originalIndex, label)}
