@@ -300,20 +300,3 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
-
-.profile-reset {
-  padding: 4px 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  transition: color 0.15s;
-  text-align: center;
-}
-
-.profile-reset:hover {
-  color: var(--accent);
-}

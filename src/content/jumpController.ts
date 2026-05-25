@@ -88,7 +88,7 @@ export class JumpController {
         this.runtimeStore.setJumpState({
           status: 'failed',
           targetId: target.localMessageId,
-          reason: `跳转异常: ${e instanceof Error ? e.message : String(e)}`,
+          reason: `跳转异常: ${e instanceof Error ? e.message : String(e)}（可尝试降低滚屏速率）`,
         });
       }
       this.clearToken(token);
@@ -201,7 +201,7 @@ export class JumpController {
             this.runtimeStore.setJumpState({
               status: 'failed',
               targetId: target.localMessageId,
-              reason: `连续 ${MAX_CONSECUTIVE_NOOPS} 次滚动无效，可能已到达边界`
+              reason: `连续 ${MAX_CONSECUTIVE_NOOPS} 次滚动无效，可能已到达边界（可尝试降低滚屏速率）`
             });
           }
           return false;
@@ -215,7 +215,7 @@ export class JumpController {
       this.runtimeStore.setJumpState({
         status: 'failed',
         targetId: target.localMessageId,
-        reason: `经过 ${MAX_ATTEMPTS} 次尝试仍未找到目标消息`
+        reason: `经过 ${MAX_ATTEMPTS} 次尝试仍未找到目标消息（可尝试降低滚屏速率）`
       });
     }
     return false;

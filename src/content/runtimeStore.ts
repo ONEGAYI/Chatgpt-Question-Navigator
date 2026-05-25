@@ -10,7 +10,7 @@ export class RuntimeStore {
     activeMessageId: null,
     jumpState: { status: 'idle' },
     autoCollectProgress: null,
-    scrollProfileName: 'default',
+    scrollProfileName: 'turbo',
   };
 
   private listeners = new Set<() => void>();

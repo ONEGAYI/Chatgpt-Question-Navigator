@@ -94,7 +94,7 @@ export function PopupApp() {
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [operating, setOperating] = useState(false);
-  const [profile, setProfile] = useState<ScrollProfileName>('default');
+  const [profile, setProfile] = useState<ScrollProfileName>('turbo');
 
   const refresh = useCallback(async () => {
     try {
@@ -193,10 +193,6 @@ export function PopupApp() {
     }
   };
 
-  const handleProfileReset = () => {
-    handleProfileChange('default');
-  };
-
   if (loading) {
     return <div class="popup"><div class="loading">加载中...</div></div>;
   }
@@ -244,11 +240,6 @@ export function PopupApp() {
             </button>
           ))}
         </div>
-        {profile !== 'default' && (
-          <button class="profile-reset" onClick={handleProfileReset}>
-            重置为标准
-          </button>
-        )}
       </div>
 
       {info && info.conversations.length > 0 && (
