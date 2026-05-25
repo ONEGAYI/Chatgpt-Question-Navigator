@@ -116,7 +116,7 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 - **Canonical 模式**：AutoCollector 采集完成后通过 `replaceConversationMessages()` 原子写入 messages + orderedIds + orderMode='canonical'。在 canonical 模式下，CacheStore.resolveScannedSegments 不调用 mergeOrderedSegments，只 append 新 ID 到末尾。现有 MessageScanner 保留用于轻量增量更新（mounted state、跳转）
 - **AutoCollector 跨 reload 恢复**：使用 chrome.storage.local 保存 `autoCollectIntent`，启动时在 urlWatcher.start() 之前读取 intent，匹配当前 URL 则自动恢复采集
 - **渐进式跳转**：点击未挂载（cached-only）消息触发渐进式跳转循环。attempt 0 用 scrollRatio 种子定位，后续用 decideDirection + scrollOneChunk 自适应步进（viewport × 衰减系数），每步等待由 ScrollProfile 的 `jcSettleMs` 决定（default=500ms, fast=300ms, turbo=200ms）。最大 200 次尝试后显示失败 toast
-- **滚屏速率**：ScrollProfile 提供 default/fast/turbo 三档预置参数，影响 AutoCollector 采集速度和 JumpController 跳转步进。**Ctrl+Shift+S** 循环切换（也可在 Popup 中选择），通过 chrome.storage.local 持久化
+- **滚屏速率**：ScrollProfile 提供 default/fast/turbo 三档预置参数，影响 AutoCollector 采集速度和 JumpController 跳转步进。默认档位为 **turbo**（极速），通过 chrome.storage.local 持久化。**Ctrl+Shift+S** 循环切换（也可在 Popup 中选择）
 - **跳转取消**：用户手动滚动（wheel/touch/keyboard/pointerdown）、Esc 键、或点击新目标时自动取消当前跳转。通过 JumpToken 实现可取消异步操作
 - **VisibleRange 基于 orderKey**：`minOrderKey/maxOrderKey` 来自 RuntimeStore.messages 中可见消息的 orderKey 字段
 - **构建产物**：`.output/` 目录，`chrome-mv3` 为生产构建，`chrome-mv3-dev` 为开发构建
