@@ -97,18 +97,15 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
   const indexedMessages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     let qIndex = 0;
-    return snapshot.messages
-      .filter((m) => {
-        if (!query) return true;
-        return m.textForSearch.toLowerCase().includes(query);
-      })
-      .map((m) => {
-        if (m.role === 'user') {
-          qIndex++;
-          return { message: m, label: `Q${qIndex}` as const, isAssistant: false };
-        }
-        return { message: m, label: `A${qIndex}` as const, isAssistant: true };
-      });
+    const labeled = snapshot.messages.map((m) => {
+      if (m.role === 'user') {
+        qIndex++;
+        return { message: m, label: `Q${qIndex}` as const, isAssistant: false };
+      }
+      return { message: m, label: `A${qIndex}` as const, isAssistant: true };
+    });
+    if (!query) return labeled;
+    return labeled.filter(({ message: m }) => m.textForSearch.toLowerCase().includes(query));
   }, [snapshot.messages, searchQuery]);
 
   const userCount = useMemo(
