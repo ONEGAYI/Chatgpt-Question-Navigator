@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { AutoCollector } from '../content/autoCollector';
 import type { JumpController } from '../content/jumpController';
 import type { RuntimeStore } from '../content/runtimeStore';
-import type { AutoCollectPhase, CachedUserMessage, RuntimeState } from '../shared/types';
+import type { AutoCollectPhase, CachedMessage, RuntimeState } from '../shared/types';
 import { JumpToast } from './JumpToast';
 import { MessageItem } from './MessageItem';
 import { MiniBar } from './MiniBar';
@@ -42,7 +42,7 @@ function getStatusText(phase: AutoCollectPhase | null | undefined, progress: { f
 }
 
 interface HoverState {
-  message: CachedUserMessage;
+  message: CachedMessage;
   rect: DOMRect;
 }
 
@@ -101,7 +101,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return userMessages.filter((message) => message.textForSearch.toLowerCase().includes(query));
   }, [userMessages, searchQuery]);
 
-  const handleJump = (target: CachedUserMessage) => void jumpController.jumpToMessage(target);
+  const handleJump = (target: CachedMessage) => void jumpController.jumpToMessage(target);
 
   const clearHover = useCallback(() => setHover(null), []);
 

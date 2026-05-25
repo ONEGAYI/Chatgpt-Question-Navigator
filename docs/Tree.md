@@ -24,7 +24,7 @@ chatgpt-question-navigator/
 │   ├── shared/
 │   │   ├── hash.ts                 # SHA-256 文本指纹（前 8 字节）
 │   │   ├── text.ts                 # 文本归一化、截断预览、搜索分词高亮
-│   │   └── types.ts                # 全局类型定义（CachedUserMessage, RuntimeState 等）
+│   │   └── types.ts                # 全局类型定义（CachedMessage, RuntimeState 等）
 │   └── ui/
 │       ├── MessageItem.tsx          # 单条消息列表项，搜索高亮 + hover 预览 + 跳转状态
 │       ├── JumpToast.tsx            # 跳转进度和失败状态 Toast，底部固定显示

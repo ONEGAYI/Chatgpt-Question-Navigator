@@ -1,4 +1,4 @@
-import type { CachedUserMessage, VisibleRange } from '../shared/types';
+import type { CachedMessage, VisibleRange } from '../shared/types';
 import type { CacheStore } from './cacheStore';
 import type { MessageScanner } from './messageScanner';
 import type { RuntimeStore } from './runtimeStore';
@@ -55,7 +55,7 @@ export class JumpController {
     return this.currentToken === token && !token.cancelled;
   }
 
-  async jumpToMessage(target: CachedUserMessage): Promise<boolean> {
+  async jumpToMessage(target: CachedMessage): Promise<boolean> {
     this.cancelCurrent();
 
     const token = createJumpToken();
@@ -102,7 +102,7 @@ export class JumpController {
     }
   }
 
-  private async jumpToCachedMessage(target: CachedUserMessage, token: JumpToken): Promise<boolean> {
+  private async jumpToCachedMessage(target: CachedMessage, token: JumpToken): Promise<boolean> {
     let consecutiveNoOps = 0;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
@@ -216,7 +216,7 @@ export class JumpController {
     return false;
   }
 
-  private async landOnTarget(el: HTMLElement, target: CachedUserMessage, token: JumpToken, smooth: boolean): Promise<boolean> {
+  private async landOnTarget(el: HTMLElement, target: CachedMessage, token: JumpToken, smooth: boolean): Promise<boolean> {
     if (!this.isCurrent(token)) return false;
     this.scrollDriver.scrollElementIntoView(el, { block: 'center', behavior: smooth ? 'smooth' : 'auto' });
     this.highlightMessage(el);
@@ -238,7 +238,7 @@ export class JumpController {
     return result.moved;
   }
 
-  private async jumpToMounted(target: CachedUserMessage, token: JumpToken): Promise<boolean> {
+  private async jumpToMounted(target: CachedMessage, token: JumpToken): Promise<boolean> {
     const el = this.scanner.getElementByLocalId(target.localMessageId);
     if (!el?.isConnected) return false;
     return await this.landOnTarget(el, target, token, true);

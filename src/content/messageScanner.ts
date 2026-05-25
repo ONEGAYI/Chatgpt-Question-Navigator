@@ -1,4 +1,4 @@
-import type { CachedUserMessage, ResolveResult, ScanResult, ScannedUserMessageCandidate, VisibleRange } from '../shared/types';
+import type { CachedMessage, ResolveResult, ScanResult, ScannedUserMessageCandidate, VisibleRange } from '../shared/types';
 import { hashText } from '../shared/hash';
 import { toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
@@ -255,7 +255,7 @@ export class MessageScanner {
     this.elementById.forEach((element) => this.intersectionObserver?.observe(element));
   }
 
-  private registerAnchorTurnElements(conversationId: string, allMessages: CachedUserMessage[]): void {
+  private registerAnchorTurnElements(conversationId: string, allMessages: CachedMessage[]): void {
     // 构建 Map 避免 O(n²) 查找
     const messageById = new Map(allMessages.map((m) => [m.localMessageId, m]));
     const allTurnElements = this.domAdapter.findTurnElements();
