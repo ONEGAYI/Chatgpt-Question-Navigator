@@ -1,6 +1,6 @@
 import type { AutoCollectIntent, AutoCollectPhase, AutoCollectProgress, CachedUserMessage, TurnFrame } from '../shared/types';
 import { hashText } from '../shared/hash';
-import { toPreview, toSearchText } from '../shared/text';
+import { toPreview, toSearchText, toAiPreview, toAiSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
 import type { DomAdapter } from './domAdapter';
 import type { RuntimeStore } from './runtimeStore';
@@ -111,7 +111,7 @@ export class AutoCollector {
         this.round++;
 
         this.runtimeStore.setMessages(
-          this.buildUserMessagesFromFrames(conversationId)
+          this.buildAllMessages(conversationId)
         );
         this.emitProgress();
 
@@ -275,8 +275,21 @@ export class AutoCollector {
       frame.preview = toPreview(text);
       frame.textForSearch = toSearchText(text);
     }
-    // assistant turn 只需 role recognition 即视为 hydrated；
-    // 最终 Q 列表只由 user frames 生成，无需保存 assistant 文本。
+
+    if (role === 'assistant') {
+      const assistantEl = el.querySelector<HTMLElement>('[data-message-author-role="assistant"]');
+      const text = assistantEl ? this.domAdapter.extractText(assistantEl) : '';
+      if (text) {
+        frame.textHash = await hashText(text.slice(0, 500));
+        frame.preview = toAiPreview(text);
+        frame.textForSearch = toAiSearchText(text);
+      } else {
+        // 文本不可提取时使用 turnKey 派生 hash，确保 anchor 一定生成
+        frame.textHash = await hashText(`assistant:${frame.turnKey}`);
+        frame.preview = '';
+        frame.textForSearch = '';
+      }
+    }
 
     frame.role = role;
     frame.hydrated = true;
@@ -285,21 +298,21 @@ export class AutoCollector {
     frame.lastKnownScrollRatio = this.scrollDriver.getScrollRatio();
   }
 
-  private buildUserMessagesFromFrames(conversationId: string): CachedUserMessage[] {
+  private buildAllMessages(conversationId: string): CachedUserMessage[] {
     const sortedFrames = [...this.frames.values()]
       .sort((a, b) => a.turnIndex - b.turnIndex);
 
-    const userFrames = sortedFrames.filter(
-      (f) => f.role === 'user' && f.hydrated && f.textHash !== null
+    const hydratedFrames = sortedFrames.filter(
+      (f) => f.hydrated && f.textHash !== null
     );
 
     const now = Date.now();
-    return userFrames.map((frame, index) => ({
+    return hydratedFrames.map((frame, index) => ({
       conversationId,
       localMessageId: `${conversationId}::turn::${frame.turnKey}`,
-      role: 'user' as const,
-      textForSearch: frame.textForSearch!,
-      preview: frame.preview!,
+      role: frame.role as 'user' | 'assistant',
+      textForSearch: frame.textForSearch ?? '',
+      preview: frame.preview ?? '',
       textHash: frame.textHash!,
       occurrenceIndex: index,
       firstSeenAt: now,
@@ -344,7 +357,7 @@ export class AutoCollector {
         stagnantRounds = 0;
         this.foundCount = this.countHydratedUserMessages();
         this.runtimeStore.setMessages(
-          this.buildUserMessagesFromFrames(this.currentConversationId)
+          this.buildAllMessages(this.currentConversationId)
         );
         this.emitProgress();
       } else {
@@ -367,7 +380,7 @@ export class AutoCollector {
   }
 
   private async checkpointProgress(conversationId: string): Promise<void> {
-    const messages = this.buildUserMessagesFromFrames(conversationId);
+    const messages = this.buildAllMessages(conversationId);
     await this.cacheStore.replaceConversationMessages(conversationId, messages);
   }
 
@@ -376,7 +389,7 @@ export class AutoCollector {
   private async finalize(conversationId: string): Promise<void> {
     this.setPhase('finalizing');
 
-    const messages = this.buildUserMessagesFromFrames(conversationId);
+    const messages = this.buildAllMessages(conversationId);
     await this.cacheStore.replaceConversationMessages(conversationId, messages);
     this.runtimeStore.setMessages(messages);
 
