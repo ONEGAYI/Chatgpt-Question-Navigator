@@ -2,6 +2,9 @@
 
 本项目是一个本地优先、隐私友好的 Chrome/Edge Manifest V3 扩展，用于在 ChatGPT 长对话页面右侧显示用户问题导航侧栏。
 
+*插件演示视频*
+https://github.com/user-attachments/assets/5de5f1df-4f4a-4e79-8f3d-142e3cd1b433
+
 ## 已实现范围
 
 - 仅在 `https://chatgpt.com/*` 和 `https://chat.openai.com/*` 启用。
