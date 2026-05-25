@@ -94,12 +94,24 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const userMessages = useMemo(() => snapshot.messages.filter((m) => m.role === 'user'), [snapshot.messages]);
-  const messages = useMemo(() => {
+  const indexedMessages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return userMessages;
-    return userMessages.filter((message) => message.textForSearch.toLowerCase().includes(query));
-  }, [userMessages, searchQuery]);
+    let qIndex = 0;
+    const labeled = snapshot.messages.map((m) => {
+      if (m.role === 'user') {
+        qIndex++;
+        return { message: m, label: `Q${qIndex}` as const, isAssistant: false };
+      }
+      return { message: m, label: `A${qIndex}` as const, isAssistant: true };
+    });
+    if (!query) return labeled;
+    return labeled.filter(({ message: m }) => m.textForSearch.toLowerCase().includes(query));
+  }, [snapshot.messages, searchQuery]);
+
+  const userCount = useMemo(
+    () => snapshot.messages.filter((m) => m.role === 'user').length,
+    [snapshot.messages]
+  );
 
   const handleJump = (target: CachedMessage) => void jumpController.jumpToMessage(target);
 
@@ -146,7 +158,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return (
       <>
         <MiniBar
-          messages={userMessages}
+          messages={snapshot.messages.filter((m) => m.role === 'user')}
           activeMessageId={snapshot.activeMessageId}
           mountedIds={snapshot.mountedIds}
           onJump={handleJump}
@@ -223,25 +235,27 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
 
         {!clearing && (
           <div className="cqn-status">
-            {getStatusText(collectPhase, snapshot.autoCollectProgress, userMessages.length)}
+            {getStatusText(collectPhase, snapshot.autoCollectProgress, userCount)}
           </div>
         )}
 
-        {clearing && messages.length === 0 ? (
+        {clearing && indexedMessages.length === 0 ? (
           <div className="cqn-list" role="status" aria-live="polite">
             <div className="cqn-clearing-notice">已清理，即将重新采集当前会话……</div>
           </div>
         ) : (
           <nav className="cqn-list" aria-label="ChatGPT user questions">
-            {messages.map((message, index) => (
+            {indexedMessages.map(({ message, label, isAssistant }) => (
               <MessageItem
                 key={message.localMessageId}
                 message={message}
-                index={index}
+                index={0}
                 active={snapshot.activeMessageId === message.localMessageId}
                 mounted={snapshot.mountedIds.has(message.localMessageId)}
                 isJumping={snapshot.jumpState.status === 'jumping' && snapshot.jumpState.targetId === message.localMessageId}
                 searchQuery={searchQuery}
+                isAssistant={isAssistant}
+                label={label}
                 onClick={handleJump}
                 onHoverStart={(msg, rect) => setHover({ message: msg, rect })}
                 onHoverEnd={() => setHover(null)}
