@@ -39,11 +39,14 @@ export class CacheStore {
     const cache = result[key] as ConversationCache | undefined;
     const normalized = cache ? this.normalizeCache(cache) : null;
     this.currentCache = normalized ?? this.createEmptyCache(id);
+    const normalizedMessagesById = normalized
+      ? new Map(normalized.messages.map((m) => [m.localMessageId, m]))
+      : null;
 
     if (cache && normalized && (
       !arraysEqual(cache.orderedIds ?? [], normalized.orderedIds)
-      || cache.messages.some((raw, i) => {
-        const norm = normalized.messages[i];
+      || cache.messages.some((raw) => {
+        const norm = normalizedMessagesById!.get(raw.localMessageId);
         return !norm || raw.orderKey !== norm.orderKey || raw.turnKey !== norm.turnKey || raw.turnIndex !== norm.turnIndex;
       })
     )) {
@@ -255,13 +258,12 @@ export class CacheStore {
     const changed = messages.some((message, index) => message !== this.currentCache!.messages[index]);
     if (!changed) return;
 
+    // scroll 元数据不影响排序，直接替换消息即可
     const messagesById = new Map<string, CachedMessage>(messages.map((message) => [message.localMessageId, message]));
-    const normalized = reorderAndRekeyByTurnIndex(orderMessagesByIds(messagesById, this.currentCache.orderedIds));
     this.currentCache = {
       ...this.currentCache,
       updatedAt: now,
-      messages: normalized,
-      orderedIds: normalized.map((m) => m.localMessageId),
+      messages: orderMessagesByIds(messagesById, this.currentCache.orderedIds),
     };
     this.dirty = true;
     this.scheduleSave();
@@ -346,7 +348,7 @@ export class CacheStore {
   ): CachedMessage | null {
     if (candidate.turnKey) {
       const turnId = `${conversationId}::turn::${candidate.turnKey}`;
-      const matched = existing.find((message) => message.localMessageId === turnId && !usedExisting.has(message.localMessageId));
+      const matched = existing.find((message) => message.localMessageId === turnId && message.role === candidate.role && !usedExisting.has(message.localMessageId));
       if (matched) return matched;
     }
 

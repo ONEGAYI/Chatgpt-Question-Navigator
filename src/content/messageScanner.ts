@@ -105,7 +105,6 @@ export class MessageScanner {
       if (role === 'unknown') continue;
 
       const scrollRatio = this.scrollDriver.getScrollRatio();
-      const absoluteTop = this.scrollDriver.getAbsoluteTop(turnEl);
 
       if (role === 'user') {
         // user: 使用 userEl 作为 element，保留现有 activeMessageId / 高亮 / scroll meta 行为
@@ -122,7 +121,7 @@ export class MessageScanner {
           textForSearch: toSearchText(text),
           scrollRatio,
           scrollTop,
-          absoluteTop,
+          absoluteTop: this.scrollDriver.getAbsoluteTop(userEl),
           element: userEl,
           turnKey,
           role: 'user',
@@ -141,7 +140,7 @@ export class MessageScanner {
           textForSearch: '',
           scrollRatio,
           scrollTop,
-          absoluteTop,
+          absoluteTop: this.scrollDriver.getAbsoluteTop(turnEl),
           // assistant 的 element 使用 turn 容器本身（不是内部 markdown 节点），
           // 因为 turn 元素始终存在且位置稳定，覆盖整个 AI 回复区域
           element: turnEl,
