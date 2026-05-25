@@ -13,6 +13,7 @@
     "build:edge": "wxt build -b edge && node scripts/copy-build.mjs",
     "compile": "tsc --noEmit",
     "test:order": "node --test scripts/order-list-regression.test.mjs",
+    "bump": "node scripts/bump.mjs",
     "zip": "wxt zip"
   },
   "dependencies": {
