@@ -280,6 +280,7 @@ export class AutoCollector {
       const assistantEl = el.querySelector<HTMLElement>('[data-message-author-role="assistant"]');
       const text = assistantEl ? this.domAdapter.extractText(assistantEl) : '';
       if (text) {
+        // hash 基于 raw 文本截断，与 toAiSearchText（normalize 后截断）的输入可能不同
         frame.textHash = await hashText(text.slice(0, 500));
         frame.preview = toAiPreview(text);
         frame.textForSearch = toAiSearchText(text);
