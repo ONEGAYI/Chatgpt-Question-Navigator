@@ -91,6 +91,8 @@ export class MessageScanner {
     const scrollTop = this.scrollDriver.getScrollTop();
     const scanDirection = this.getScanDirection(scrollTop);
 
+    console.log('[CQN] rescan: found turns=', turnElements.length, 'scrollTop=', scrollTop, 'direction=', scanDirection);
+
     for (let index = 0; index < turnElements.length; index += 1) {
       const turnEl = turnElements[index];
       if (!turnEl) continue;
@@ -132,6 +134,8 @@ export class MessageScanner {
         // textHash 使用 turnKey 派生的稳定 hash，不随流式输出变化
         const textHash = await hashText(`assistant:${turnKey}`);
 
+        console.log('[CQN] rescan: assistant anchor detected turnKey=', turnKey, 'turnIndex=', turnIndex);
+
         candidates.push({
           observedDomMessageId: null,
           text: '',
@@ -150,6 +154,10 @@ export class MessageScanner {
         });
       }
     }
+
+    console.log('[CQN] rescan: candidates=', candidates.length,
+      'user=', candidates.filter(c => c.role === 'user').length,
+      'assistant=', candidates.filter(c => c.role === 'assistant').length);
 
     const candidateSegments = this.createCandidateSegments(candidates, scanDirection);
     const sortedCandidates = candidateSegments.flatMap((segment) => segment.candidates);
@@ -171,6 +179,10 @@ export class MessageScanner {
     this.runtimeStore.setMessages(result.allMessages);
     this.runtimeStore.setMountedState(this.mountedIds, this.elementById);
     this.reobserveMountedElements();
+
+    console.log('[CQN] rescan: mounted=', this.mountedIds.size,
+      'elementById=', this.elementById.size,
+      'newOrUpdated=', result.newOrUpdated.length);
 
     const activeMessageId = this.computeActiveMessageId();
     this.runtimeStore.setActiveMessageId(activeMessageId);

@@ -116,6 +116,11 @@ export class CacheStore {
   async resolveScannedSegments(conversationId: string, segments: StoredCandidateSegment[]): Promise<ResolveResult> {
     this.ensureCurrentCache(conversationId);
 
+    console.log('[CQN] resolve: segments=', segments.length,
+      'totalCandidates=', segments.reduce((sum, s) => sum + s.candidates.length, 0),
+      'existing=', this.currentCache!.messages.length,
+      'orderMode=', this.currentCache?.orderMode ?? 'incremental');
+
     const now = Date.now();
     const existing = this.currentCache!.messages;
     const existingOrderedIds = this.currentCache!.orderedIds;
@@ -141,6 +146,11 @@ export class CacheStore {
           && candidate.preview === ''
           && candidate.textForSearch === '';
 
+        if (isPlaceholder && matched) {
+          console.log('[CQN] resolve: placeholder protection triggered localId=', localMessageId,
+            'matched.preview=', matched.preview?.slice(0, 30));
+        }
+
         const next: CachedMessage = {
           conversationId,
           localMessageId,
@@ -163,6 +173,9 @@ export class CacheStore {
         if (!matched || this.hasMeaningfulChange(matched, next)) {
           newOrUpdated.push(next);
           this.dirty = true;
+          console.log('[CQN] resolve: newOrUpdated localId=', localMessageId,
+            'role=', next.role, 'isNew=', !matched,
+            'preview=', next.preview?.slice(0, 30));
         }
 
         usedExisting.add(localMessageId);
@@ -239,6 +252,12 @@ export class CacheStore {
     // 将 newOrUpdated 映射为 rekey 后的最终值
     const finalById = new Map(allMessages.map((m) => [m.localMessageId, m]));
     const finalNewOrUpdated = newOrUpdated.map((m) => finalById.get(m.localMessageId) ?? m);
+
+    console.log('[CQN] resolve: result allMessages=', allMessages.length,
+      'user=', allMessages.filter(m => m.role === 'user').length,
+      'assistant=', allMessages.filter(m => m.role === 'assistant').length,
+      'newOrUpdated=', finalNewOrUpdated.length,
+      'dirty=', this.dirty);
 
     return { allMessages, resolvedMounted, resolvedCandidates, newOrUpdated: finalNewOrUpdated };
   }
@@ -349,7 +368,10 @@ export class CacheStore {
     if (candidate.turnKey) {
       const turnId = `${conversationId}::turn::${candidate.turnKey}`;
       const matched = existing.find((message) => message.localMessageId === turnId && message.role === candidate.role && !usedExisting.has(message.localMessageId));
-      if (matched) return matched;
+      if (matched) {
+        console.log('[CQN] match: turnKey matched localId=', turnId, 'role=', candidate.role);
+        return matched;
+      }
     }
 
     if (candidate.observedDomMessageId) {
