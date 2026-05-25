@@ -1,6 +1,6 @@
 import type { CachedMessage, ResolveResult, ScanResult, ScannedMessageCandidate, VisibleRange } from '../shared/types';
 import { hashText } from '../shared/hash';
-import { toPreview, toSearchText } from '../shared/text';
+import { toAiPreview, toAiSearchText, toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
 import type { DomAdapter } from './domAdapter';
 import type { ScanDirection, ScanSegmentKind } from './orderList';
@@ -130,23 +130,36 @@ export class MessageScanner {
           turnIndex,
         });
       } else {
-        // assistant P0: 只创建 anchor，不写流式文本
-        // textHash 使用 turnKey 派生的稳定 hash，不随流式输出变化
-        const textHash = await hashText(`assistant:${turnKey}`);
+        // assistant: 尝试从 DOM 提取文本；流式输出中则为空骨架
+        const assistantEl = this.domAdapter.findRoleElementInTurn(turnEl, 'assistant');
+        const text = assistantEl ? this.domAdapter.extractText(assistantEl) : '';
 
-        console.log('[CQN] rescan: assistant anchor detected turnKey=', turnKey, 'turnIndex=', turnIndex);
+        let textHash: string;
+        let preview: string;
+        let textForSearch: string;
+
+        if (text) {
+          textForSearch = toAiSearchText(text);
+          textHash = await hashText(textForSearch);
+          preview = toAiPreview(text);
+        } else {
+          textHash = await hashText(`assistant:${turnKey}`);
+          preview = '';
+          textForSearch = '';
+        }
+
+        console.log('[CQN] rescan: assistant anchor turnKey=', turnKey, 'turnIndex=', turnIndex,
+          'hasText=', !!text, 'preview=', preview.slice(0, 30));
 
         candidates.push({
           observedDomMessageId: null,
-          text: '',
+          text,
           textHash,
-          preview: '',
-          textForSearch: '',
+          preview,
+          textForSearch,
           scrollRatio,
           scrollTop,
           absoluteTop: this.scrollDriver.getAbsoluteTop(turnEl),
-          // assistant 的 element 使用 turn 容器本身（不是内部 markdown 节点），
-          // 因为 turn 元素始终存在且位置稳定，覆盖整个 AI 回复区域
           element: turnEl,
           turnKey,
           role: 'assistant',
