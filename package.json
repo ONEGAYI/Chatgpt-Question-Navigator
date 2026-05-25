@@ -14,6 +14,7 @@
     "compile": "tsc --noEmit",
     "test:order": "node --test scripts/order-list-regression.test.mjs",
     "bump": "node scripts/bump.mjs",
+    "release": "node scripts/release.mjs",
     "zip": "wxt zip"
   },
   "dependencies": {

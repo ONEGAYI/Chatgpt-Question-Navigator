@@ -43,9 +43,11 @@ chatgpt-question-navigator/
 ├── public/
 │   └── icon.png                     # 扩展图标（16/32/48/128 复用）
 ├── scripts/
+│   ├── bump.mjs                     # 版本管理：patch/minor/major/精确版本，同步更新 package.json + wxt.config.ts
 │   ├── copy-build.mjs               # 构建后拷贝产物到 %TEMP% 统一加载路径
 │   ├── dev-edge-isolated.mjs        # Isolated Edge dev 脚本，profile 位于 .wxt/edge-data
-│   └── order-list-regression.test.mjs  # orderList 分段合并回归测试（node:test）
+│   ├── order-list-regression.test.mjs  # orderList 分段合并回归测试（node:test）
+│   └── release.mjs                  # 发布流程：pull → push → build → zip，输出产物路径供 gh release 使用
 ├── .gitignore
 ├── CLAUDE.md                        # Claude Code 项目指引
 ├── README.md                        # 用户文档：安装、构建、加载、隐私说明

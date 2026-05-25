@@ -16,7 +16,9 @@ pnpm dev              # 开发模式（WXT watch，输出到 .output/chrome-mv3-
 pnpm build            # 生产构建（输出到 .output/chrome-mv3）
 pnpm build:edge       # Edge 构建
 pnpm compile          # TypeScript 类型检查（tsc --noEmit）
-pnpm zip              # 打包 zip
+pnpm zip              # 打包 zip（输出到 .output/*.zip）
+pnpm bump patch       # 版本号 +0.0.1（支持 patch|minor|major|x.y.z，--dry-run 预览）
+pnpm release          # 发布流程：pull → push → build → zip
 ```
 
 加载扩展：Chrome `chrome://extensions/` → 开发者模式 → 加载已解压的扩展程序 → 选择 `.output/chrome-mv3`。
@@ -117,6 +119,14 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 - **VisibleRange 基于 orderKey**：`minOrderKey/maxOrderKey` 来自 RuntimeStore.messages 中可见消息的 orderKey 字段
 - **构建产物**：`.output/` 目录，`chrome-mv3` 为生产构建，`chrome-mv3-dev` 为开发构建
 - **AI 消息展示**：缓存中同时包含 `role: 'user'` 和 `role: 'assistant'` 消息。AI 消息在侧栏展开模式以树状缩进（SVG `│└─`）+ 引用块样式展示，使用 A1/A2 编号与 Q1/Q2 对应。MiniBar 中 AI 消息为缩细条标记。`computeActiveMessageId` 同时追踪 user 和 assistant 消息，active 高亮可在 Q 和 A 之间平滑切换
+
+## 发布流程
+
+1. **版本号管理**：`pnpm bump [patch|minor|major|VERSION]` — 同步更新 `package.json` 和 `wxt.config.ts`（`--dry-run` 预览）
+2. **更新文档**：CHANGELOG.md、CLAUDE.md、Tree.md
+3. **提交文档变更**
+4. **执行发布**：`pnpm release` — 自动完成 pull → push → build → zip，输出产物路径
+5. **创建 Release**：`gh release create v{version} .output/chatgpt-question-navigator-{version}-chrome.zip --title "v{version}" --notes "详见 CHANGELOG"`
 
 ## 文件树
 
