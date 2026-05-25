@@ -158,7 +158,7 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
     return (
       <>
         <MiniBar
-          messages={snapshot.messages.filter((m) => m.role === 'user')}
+          messages={snapshot.messages}
           activeMessageId={snapshot.activeMessageId}
           mountedIds={snapshot.mountedIds}
           onJump={handleJump}
