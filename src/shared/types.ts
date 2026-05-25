@@ -1,3 +1,5 @@
+import type { ScrollProfileName } from './scrollProfile';
+
 export interface CachedMessage {
   conversationId: string;
   localMessageId: string;
@@ -63,6 +65,7 @@ export interface RuntimeState {
   activeMessageId: string | null;
   jumpState: JumpState;
   autoCollectProgress: AutoCollectProgress | null;
+  scrollProfileName: ScrollProfileName;
 }
 
 export interface VisibleRange {
