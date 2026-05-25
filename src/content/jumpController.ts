@@ -278,9 +278,9 @@ export class JumpController {
       console.debug('[CQN Jump] tryLandOnMounted verify', { rectAfter: { top: rectAfter.top, bottom: rectAfter.bottom, width: rectAfter.width, height: rectAfter.height }, inViewport: true });
     }
 
-    this.highlightMessage(el);
     this.scanner.updateScrollMeta(target.localMessageId, this.scrollDriver.getScrollTop(), this.scrollDriver.getScrollRatio());
     await this.cacheStore.flush();
+    this.highlightMessage(el);
     return true;
   }
 
