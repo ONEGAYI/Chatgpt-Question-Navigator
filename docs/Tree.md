@@ -26,12 +26,12 @@ chatgpt-question-navigator/
 │   │   ├── text.ts                 # 文本归一化、截断预览、搜索分词高亮
 │   │   └── types.ts                # 全局类型定义（CachedMessage, RuntimeState 等）
 │   └── ui/
-│       ├── MessageItem.tsx          # 单条消息列表项，搜索高亮 + hover 预览 + 跳转状态
+│       ├── MessageItem.tsx          # 单条消息列表项；user: 搜索高亮+hover+跳转；AI: 树状SVG+引用块（isAssistant prop）
 │       ├── JumpToast.tsx            # 跳转进度和失败状态 Toast，底部固定显示
-│       ├── MiniBar.tsx              # Mini 模式导航条，滑动窗口标记 + ▲/▼ 导航
+│       ├── MiniBar.tsx              # Mini 模式导航条，滑动窗口（MAX_VISIBLE=10）user 横条 + AI 缩细条，▲/▼ 仅移动 Q
 │       ├── SearchBox.tsx            # 搜索输入框（300ms 防抖）
 │       ├── ShadowRootApp.tsx        # Shadow DOM 挂载入口
-│       ├── Sidebar.tsx              # 主组件，三态切换（展开/Mini/折叠）+ 状态订阅
+│       ├── Sidebar.tsx              # 主组件，三态切换（展开/Mini/折叠），Q/A 编号消息列表 + 搜索
 │       └── styles.css               # Shadow DOM 内样式，CSS 变量支持暗色/亮色
 ├── docs/
 │   ├── Tree.md                      # 本文件
