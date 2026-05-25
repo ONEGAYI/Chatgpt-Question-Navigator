@@ -29,3 +29,14 @@ export function splitByQuery(text: string, query: string): Array<{ text: string;
       match: part.toLowerCase() === normalizedQuery.toLowerCase()
     }));
 }
+
+export const AI_PREVIEW_MAX_LENGTH = 200;
+export const AI_SEARCH_MAX_LENGTH = 500;
+
+export function toAiPreview(input: string): string {
+  return toPreview(input, AI_PREVIEW_MAX_LENGTH);
+}
+
+export function toAiSearchText(input: string): string {
+  return toSearchText(input, AI_SEARCH_MAX_LENGTH);
+}
