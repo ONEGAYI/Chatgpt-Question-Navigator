@@ -40,10 +40,7 @@ function MessageItemComponent({
         onMouseEnter={handleAiMouseEnter}
         onMouseLeave={onHoverEnd}
       >
-        <span className="cqn-tree-connector" aria-hidden="true">
-          <span className="cqn-tree-connector-line">│</span>
-          <span className="cqn-tree-connector-branch">└─</span>
-        </span>
+        <span className="cqn-tree-connector" aria-hidden="true">{'│\n└─'}</span>
         <span className="cqn-item-ai-body">
           <span className="cqn-item-ai-label">{label}</span>
           <span className="cqn-item-ai-preview">

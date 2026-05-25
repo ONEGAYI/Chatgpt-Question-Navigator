@@ -270,7 +270,9 @@ export class MessageScanner {
       if (!cached || cached.role !== 'assistant') continue;
 
       if (!this.elementById.has(localId) && turnEl.isConnected) {
-        this.elementById.set(localId, turnEl);
+        // 优先注册 assistant 消息容器（更精确的滚动目标），退回 turn section
+        const targetEl = turnEl.querySelector<HTMLElement>('[data-message-author-role="assistant"]') ?? turnEl;
+        this.elementById.set(localId, targetEl);
         this.mountedIds.add(localId);
       }
     }
