@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { CachedMessage } from '../shared/types';
 
-const MAX_VISIBLE = 7;
+const MAX_VISIBLE = 10;
 const HALF_WINDOW = Math.floor(MAX_VISIBLE / 2);
 
 interface HoverState {
   message: CachedMessage;
   rect: DOMRect;
   index: number;
+  label: string;
 }
 
 interface MiniBarProps {
@@ -30,6 +31,15 @@ function getVisibleRange(total: number, activeIdx: number): { start: number; end
   return { start, end: start + MAX_VISIBLE };
 }
 
+/** 计算前 i 条消息中有多少条 user 消息 */
+function countUserBefore(messages: CachedMessage[], upTo: number): number {
+  let count = 0;
+  for (let j = 0; j < upTo; j++) {
+    if (messages[j]?.role === 'user') count++;
+  }
+  return count;
+}
+
 export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpand }: MiniBarProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
 
@@ -43,27 +53,32 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
   const activeIdx = useMemo(() => getActiveIndex(messages, activeMessageId), [messages, activeMessageId]);
   const visible = useMemo(() => {
     const { start, end } = getVisibleRange(messages.length, activeIdx);
-    return messages.slice(start, end).map((msg, i) => ({ message: msg, originalIndex: start + i }));
+    return messages.slice(start, end).map((msg, i) => {
+      const globalIdx = start + i;
+      const qCount = countUserBefore(messages, globalIdx) + (msg.role === 'user' ? 1 : 0);
+      const label = msg.role === 'user' ? `Q${qCount}` : `A${qCount}`;
+      return { message: msg, originalIndex: globalIdx, label };
+    });
   }, [messages, activeIdx]);
 
-  const canPrev = activeIdx > 0;
-  const canNext = activeIdx < messages.length - 1;
+  const canPrev = activeIdx > 0 && messages.slice(0, activeIdx).some((m) => m.role === 'user');
+  const canNext = activeIdx < messages.length - 1 && messages.slice(activeIdx + 1).some((m) => m.role === 'user');
 
   const handlePrev = () => {
-    if (!canPrev) return;
-    const previous = messages[activeIdx - 1];
-    if (previous) onJump(previous);
+    for (let i = activeIdx - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'user') { onJump(messages[i]!); return; }
+    }
   };
 
   const handleNext = () => {
-    if (!canNext) return;
-    const next = messages[activeIdx + 1];
-    if (next) onJump(next);
+    for (let i = activeIdx + 1; i < messages.length; i++) {
+      if (messages[i]?.role === 'user') { onJump(messages[i]!); return; }
+    }
   };
 
-  const handleMarkHover = (e: MouseEvent, message: CachedMessage, index: number) => {
+  const handleMarkHover = (e: MouseEvent, message: CachedMessage, index: number, label: string) => {
     const target = e.currentTarget as HTMLElement;
-    setHover({ message, rect: target.getBoundingClientRect(), index });
+    setHover({ message, rect: target.getBoundingClientRect(), index, label });
   };
 
   return (
@@ -78,20 +93,21 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
           ▲
         </button>
 
-        {visible.map(({ message, originalIndex }) => {
+        {visible.map(({ message, originalIndex, label }) => {
           const isActive = message.localMessageId === activeMessageId;
           const isMounted = mountedIds.has(message.localMessageId);
           const stateClass = isActive ? 'is-active' : isMounted ? 'is-mounted' : 'is-cached';
+          const isAi = message.role === 'assistant';
 
           return (
             <button
               key={message.localMessageId}
-              className={`cqn-mini-mark ${stateClass}`}
+              className={`cqn-mini-mark${isAi ? '-ai' : ''} ${stateClass}`}
               type="button"
               onClick={() => onJump(message)}
-              onMouseEnter={(e) => handleMarkHover(e, message, originalIndex)}
+              onMouseEnter={(e) => handleMarkHover(e, message, originalIndex, label)}
               onMouseLeave={() => setHover(null)}
-              aria-label={`Q${originalIndex + 1}`}
+              aria-label={label}
             />
           );
         })}
@@ -121,7 +137,7 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
           }}
         >
           <span style={{ color: 'var(--cqn-accent)', fontSize: '9px', fontWeight: 700, display: 'block', marginBottom: '3px' }}>
-            Q{hover.index + 1}
+            {hover.label}
           </span>
           {hover.message.textForSearch}
         </span>
