@@ -7,9 +7,10 @@ import type { ScrollDriver } from './scrollDriver';
 const HIGHLIGHT_CLASS = 'cqn-target-highlight';
 const HIGHLIGHT_MS = 1500;
 const STYLE_ID = 'cqn-highlight-style';
-export const MAX_ATTEMPTS = 30;
+export const MAX_ATTEMPTS = 200;
 const SETTLE_MS = 500;
 const MAX_CONSECUTIVE_NOOPS = 3;
+const DEBUG_JUMP = false;
 
 interface JumpToken {
   cancelled: boolean;
@@ -142,19 +143,48 @@ export class JumpController {
       this.runtimeStore.setJumpState({ status: 'jumping', targetId: target.localMessageId, attempt: attempt + 1 });
 
       let moved = false;
-      if (attempt === 0 && target.lastKnownScrollRatio != null && Number.isFinite(target.lastKnownScrollRatio)) {
+      let directionSource: string;
+
+      if (result.visibleRange !== null) {
+        // AI anchor or user message provides position context — use orderKey direction
+        const direction = decideDirection(target.orderKey, result.visibleRange);
+        moved = this.scrollOneChunk(direction, attempt);
+        directionSource = 'visible-range';
+      } else if (
+        attempt === 0 &&
+        target.lastKnownScrollRatio != null &&
+        Number.isFinite(target.lastKnownScrollRatio)
+      ) {
+        // No visible anchors — fall back to ratio seed for initial coarse positioning
         const currentRatio = this.scrollDriver.getScrollRatio();
         const ratioDiff = target.lastKnownScrollRatio - currentRatio;
         if (Math.abs(ratioDiff) > 0.02) {
           const scrollResult = this.scrollDriver.scrollToRatio(target.lastKnownScrollRatio, 'auto');
           moved = scrollResult.moved;
+          directionSource = 'ratio-seed';
         } else {
           const direction = decideDirection(target.orderKey, result.visibleRange);
           moved = this.scrollOneChunk(direction, attempt);
+          directionSource = 'fallback';
         }
       } else {
         const direction = decideDirection(target.orderKey, result.visibleRange);
         moved = this.scrollOneChunk(direction, attempt);
+        directionSource = 'fallback';
+      }
+
+      if (DEBUG_JUMP) {
+        console.debug('[CQN Jump]', {
+          targetId: target.localMessageId,
+          targetOrderKey: target.orderKey,
+          targetLastKnownScrollRatio: target.lastKnownScrollRatio,
+          attempt,
+          currentScrollTop: this.scrollDriver.getScrollTop(),
+          currentScrollRatio: this.scrollDriver.getScrollRatio(),
+          visibleRange: result.visibleRange,
+          directionSource,
+          moved,
+        });
       }
 
       if (moved) {
