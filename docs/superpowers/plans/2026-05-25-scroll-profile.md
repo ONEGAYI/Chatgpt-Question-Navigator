@@ -101,6 +101,9 @@ export function getScrollProfile(name: ScrollProfileName): ScrollProfile {
 export const SCROLL_PROFILE_ORDER: ScrollProfileName[] = ['default', 'fast', 'turbo'];
 
 export const PROFILE_STORAGE_KEY = 'cqn-scroll-profile';
+
+/** AutoCollector settle 超时 — 不纳入 profile 管理，始终固定 5 秒 */
+export const AC_SETTLE_TIMEOUT_MS = 5000;
 ```
 
 - [ ] **Step 2: 类型检查**
@@ -256,12 +259,13 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ```typescript
 import type { ScrollProfile } from '../shared/scrollProfile';
+import { AC_SETTLE_TIMEOUT_MS } from '../shared/scrollProfile';
 ```
 
-2. 删除以下四个常量（保留 `MAX_ROUNDS`、`STAGNANT_LIMIT`、`NO_MOVEMENT_LIMIT`、`FALLBACK_MAX_ROUNDS`、`CHECKPOINT_EVERY_ROUNDS`、`INTENT_KEY`）：
+2. 删除以下五个常量（保留 `MAX_ROUNDS`、`STAGNANT_LIMIT`、`NO_MOVEMENT_LIMIT`、`FALLBACK_MAX_ROUNDS`、`CHECKPOINT_EVERY_ROUNDS`、`INTENT_KEY`）：
 
 ```typescript
-// 删除这四行：
+// 删除这五行：
 const SCROLL_STEP_RATIO = 0.7;
 const SETTLE_STABLE_MS = 500;
 const SETTLE_QUIET_MS = 400;
@@ -269,7 +273,7 @@ const SETTLE_POLL_MS = 100;
 const SETTLE_TIMEOUT_MS = 5000;
 ```
 
-注意 `SETTLE_TIMEOUT_MS` 也删除——它不变但为了清晰性，直接内联 5000 到 `waitForPageSettled`。
+注意 `SETTLE_TIMEOUT_MS` 也删除——改为从 `scrollProfile.ts` 导出的 `AC_SETTLE_TIMEOUT_MS` 常量（见 Task 2），保持语义清晰且避免魔法数字。
 
 - [ ] **Step 2: 构造函数新增 getProfile 参数**
 
@@ -351,7 +355,7 @@ const SETTLE_TIMEOUT_MS = 5000;
 
         const scrollStable = (now - stableSince) >= profile.acSettleStableMs;
         const domQuiet = (now - lastMutationTime) >= profile.acSettleQuietMs;
-        const timeout = (now - start) >= 5000;
+        const timeout = (now - start) >= AC_SETTLE_TIMEOUT_MS;
 
         if ((scrollStable && domQuiet) || timeout) return;
 
@@ -380,7 +384,7 @@ git commit -m "feat: AutoCollector 接入 ScrollProfile 速率参数
 - 删除 SCROLL_STEP_RATIO、SETTLE_STABLE_MS、SETTLE_QUIET_MS、SETTLE_POLL_MS 硬编码常量
 - 构造函数新增 getProfile 回调参数（带默认值，向后兼容）
 - waitForPageSettled 和滚动步长计算改为从 profile 动态读取
-- SETTLE_TIMEOUT_MS 内联为 5000（不变）
+- SETTLE_TIMEOUT_MS 替换为从 scrollProfile.ts 导出的 AC_SETTLE_TIMEOUT_MS 常量
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -563,7 +567,7 @@ import type { ScrollProfileName } from '../src/shared/scrollProfile';
         const name = msg.name as ScrollProfileName;
         if (SCROLL_PROFILE_ORDER.includes(name)) {
           runtimeStore.setScrollProfile(name);
-          chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: name });
+          await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: name });
           sendResponse({ success: true });
         } else {
           sendResponse({ success: false, error: 'Invalid profile name' });
@@ -665,8 +669,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 1. 在 imports 之后、`STORAGE_LIMIT` 常量之前新增：
 
 ```typescript
-import type { ScrollProfileName } from '../src/shared/scrollProfile';
-import { SCROLL_PROFILE_ORDER, PROFILE_STORAGE_KEY } from '../src/shared/scrollProfile';
+import type { ScrollProfileName } from '../shared/scrollProfile';
+import { SCROLL_PROFILE_ORDER, PROFILE_STORAGE_KEY } from '../shared/scrollProfile';
 
 const PROFILE_LABELS: Record<ScrollProfileName, string> = {
   default: '标准',
