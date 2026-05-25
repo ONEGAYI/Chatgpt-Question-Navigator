@@ -22,6 +22,7 @@ function MessageItemComponent({
   onClick, onHoverStart, onHoverEnd,
 }: MessageItemProps) {
   const parts = splitByQuery(message.preview, searchQuery);
+  const isStreaming = isAssistant && !message.preview && Date.now() - message.firstSeenAt < 60_000;
 
   // --- AI 消息布局（纯视觉，不可交互）---
   if (isAssistant) {
@@ -33,7 +34,16 @@ function MessageItemComponent({
         <span className="cqn-item-ai-body">
           <span className="cqn-item-ai-label">{label}</span>
           <span className="cqn-item-ai-preview">
-            {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
+            {message.preview
+              ? parts.map((part, i) => part.match
+                ? <mark key={i}>{part.text}</mark>
+                : <span key={i}>{part.text}</span>)
+              : isStreaming
+                ? <span className="cqn-streaming-dots" aria-label="AI 正在生成">
+                    <span /><span /><span />
+                  </span>
+                : <span className="cqn-item-ai-empty">（无文本内容）</span>
+            }
           </span>
         </span>
       </div>
@@ -61,7 +71,7 @@ function MessageItemComponent({
       <span className="cqn-item-index">{label}</span>
       <span className="cqn-item-body">
         <span className="cqn-item-preview">
-          {parts.map((part) => part.match ? <mark>{part.text}</mark> : <span>{part.text}</span>)}
+          {parts.map((part, i) => part.match ? <mark key={i}>{part.text}</mark> : <span key={i}>{part.text}</span>)}
         </span>
         <span className="cqn-item-meta">{metaText}</span>
       </span>

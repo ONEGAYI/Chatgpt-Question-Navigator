@@ -321,6 +321,8 @@ export class AutoCollector {
       lastKnownScrollTop: frame.lastKnownScrollTop,
       lastKnownScrollRatio: frame.lastKnownScrollRatio,
       orderKey: index,
+      turnKey: frame.turnKey,
+      turnIndex: frame.turnIndex,
     }));
   }
 

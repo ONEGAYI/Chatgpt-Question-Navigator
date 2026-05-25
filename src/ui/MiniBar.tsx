@@ -98,11 +98,13 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
           const isMounted = mountedIds.has(message.localMessageId);
           const stateClass = isActive ? 'is-active' : isMounted ? 'is-mounted' : 'is-cached';
           const isAi = message.role === 'assistant';
+          const isStreaming = isAi && !message.preview && Date.now() - message.firstSeenAt < 60_000;
+          const streamClass = isStreaming ? ' is-streaming' : '';
 
           return (
             <button
               key={message.localMessageId}
-              className={`cqn-mini-mark${isAi ? '-ai' : ''} ${stateClass}`}
+              className={`cqn-mini-mark${isAi ? '-ai' : ''} ${stateClass}${streamClass}`}
               type="button"
               onClick={() => onJump(message)}
               onMouseEnter={(e) => handleMarkHover(e, message, originalIndex, label)}
@@ -139,7 +141,7 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
           <span style={{ color: 'var(--cqn-accent)', fontSize: '9px', fontWeight: 700, display: 'block', marginBottom: '3px' }}>
             {hover.label}
           </span>
-          {hover.message.textForSearch}
+          {hover.message.textForSearch || (hover.message.role === 'assistant' ? '生成中…' : '')}
         </span>
       )}
     </>
