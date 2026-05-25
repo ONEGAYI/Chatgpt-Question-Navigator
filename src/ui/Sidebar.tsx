@@ -178,10 +178,9 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
 
   // --- 展开模式 ---
   return (
-    <>
+    <div style={{ '--cqn-sidebar-width': `${sidebarWidth}px` } as any}>
       <aside
         className={`cqn-sidebar${isResizing ? ' is-resizing' : ''}`}
-        style={{ '--cqn-sidebar-width': `${sidebarWidth}px` } as any}
       >
         <div className="cqn-resize-handle" {...dragHandleProps} />
         <header className="cqn-header">
@@ -291,6 +290,6 @@ export function Sidebar({ runtimeStore, jumpController, onClearCurrentSession, o
           {hover.message.textForSearch}
         </span>
       )}
-    </>
+    </div>
   );
 }
