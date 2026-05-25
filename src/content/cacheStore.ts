@@ -1,5 +1,5 @@
 import type {
-  CachedUserMessage,
+  CachedMessage,
   ConversationCache,
   ResolveResult,
   ScannedUserMessageCandidate,
@@ -75,7 +75,7 @@ export class CacheStore {
    */
   async replaceConversationMessages(
     conversationId: string,
-    messages: CachedUserMessage[]
+    messages: CachedMessage[]
   ): Promise<void> {
     const orderedIds = messages.map((m) => m.localMessageId);
     const cache: ConversationCache = {
@@ -108,8 +108,8 @@ export class CacheStore {
     const resolvedMounted = new Set<string>();
     const resolvedCandidates: ResolveResult['resolvedCandidates'] = [];
     const resolvedSegments: OrderedIdSegment[] = [];
-    const newOrUpdated: CachedUserMessage[] = [];
-    const nextMessagesById = new Map<string, CachedUserMessage>(existing.map((message) => [message.localMessageId, message]));
+    const newOrUpdated: CachedMessage[] = [];
+    const nextMessagesById = new Map<string, CachedMessage>(existing.map((message) => [message.localMessageId, message]));
     let candidateIndex = 0;
     const maxExistingOrderKey = existing.length > 0 ? existing.reduce((max, m) => m.orderKey > max ? m.orderKey : max, -1) : -1;
 
@@ -120,7 +120,7 @@ export class CacheStore {
         const occurrenceIndex = matched?.occurrenceIndex ?? this.nextOccurrenceIndex(conversationId, candidate.textHash, existing, nextMessagesById);
         const localMessageId = matched?.localMessageId ?? this.createLocalMessageId(conversationId, candidate.observedDomMessageId, candidate.textHash, occurrenceIndex, candidate.turnKey);
 
-        const next: CachedUserMessage = {
+        const next: CachedMessage = {
           conversationId,
           localMessageId,
           role: 'user',
@@ -211,7 +211,7 @@ export class CacheStore {
     const changed = messages.some((message, index) => message !== this.currentCache!.messages[index]);
     if (!changed) return;
 
-    const messagesById = new Map<string, CachedUserMessage>(messages.map((message) => [message.localMessageId, message]));
+    const messagesById = new Map<string, CachedMessage>(messages.map((message) => [message.localMessageId, message]));
     this.currentCache = {
       ...this.currentCache,
       updatedAt: now,
@@ -294,9 +294,9 @@ export class CacheStore {
   private matchCandidate(
     conversationId: string,
     candidate: StoredCandidate,
-    existing: CachedUserMessage[],
+    existing: CachedMessage[],
     usedExisting: Set<string>
-  ): CachedUserMessage | null {
+  ): CachedMessage | null {
     if (candidate.turnKey) {
       const turnId = `${conversationId}::turn::${candidate.turnKey}`;
       const matched = existing.find((message) => message.localMessageId === turnId && !usedExisting.has(message.localMessageId));
@@ -326,8 +326,8 @@ export class CacheStore {
   private nextOccurrenceIndex(
     conversationId: string,
     textHash: string,
-    existing: CachedUserMessage[],
-    nextMessagesById: Map<string, CachedUserMessage>
+    existing: CachedMessage[],
+    nextMessagesById: Map<string, CachedMessage>
   ): number {
     const indexes = [...existing, ...nextMessagesById.values()]
       .filter((message) => message.conversationId === conversationId && message.textHash === textHash)
@@ -341,7 +341,7 @@ export class CacheStore {
     return `${conversationId}::hash::${textHash}::${occurrenceIndex}`;
   }
 
-  private hasMeaningfulChange(previous: CachedUserMessage, next: CachedUserMessage): boolean {
+  private hasMeaningfulChange(previous: CachedMessage, next: CachedMessage): boolean {
     return previous.preview !== next.preview
       || previous.textForSearch !== next.textForSearch
       || previous.lastKnownScrollTop !== next.lastKnownScrollTop
@@ -383,7 +383,7 @@ export class CacheStore {
   }
 
   private normalizeCache(cache: ConversationCache): ConversationCache {
-    const messagesById = new Map<string, CachedUserMessage>(cache.messages.map((message) => [message.localMessageId, message]));
+    const messagesById = new Map<string, CachedMessage>(cache.messages.map((message) => [message.localMessageId, message]));
     const storedOrderedIds = Array.isArray(cache.orderedIds) ? cache.orderedIds : [];
     const orderedIds = appendMissingIds(
       storedOrderedIds.filter((id) => messagesById.has(id)),

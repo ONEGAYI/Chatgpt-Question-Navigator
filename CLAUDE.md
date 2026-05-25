@@ -74,7 +74,7 @@ Popup → Content Script 通信协议：
 
 | 文件 | 职责 |
 |------|------|
-| `types.ts` | 所有接口定义（CachedUserMessage, ConversationCache, RuntimeState, JumpState 等） |
+| `types.ts` | 所有接口定义（CachedMessage, ConversationCache, RuntimeState, JumpState 等） |
 | `hash.ts` | SHA-256 取前 8 字节作为文本指纹 |
 | `text.ts` | 文本归一化、截断预览、搜索分词高亮 |
 
@@ -115,7 +115,7 @@ URL 变化 → UrlWatcher → 加载对应会话缓存 → rescan
 - **跳转取消**：用户手动滚动（wheel/touch/keyboard/pointerdown）、Esc 键、或点击新目标时自动取消当前跳转。通过 JumpToken 实现可取消异步操作
 - **VisibleRange 基于 orderKey**：`minOrderKey/maxOrderKey` 来自 RuntimeStore.messages 中可见消息的 orderKey 字段
 - **构建产物**：`.output/` 目录，`chrome-mv3` 为生产构建，`chrome-mv3-dev` 为开发构建
-- **AI 锚点消息**：缓存中同时包含 `role: 'user'` 和 `role: 'assistant'` 消息。AI 消息作为隐藏锚点参与 `visibleRange` 计算但不显示在 UI 中，也不参与 activeMessageId 计算。`CachedUserMessage` 命名待重命名为 `CachedMessage`（#12）
+- **AI 锚点消息**：缓存中同时包含 `role: 'user'` 和 `role: 'assistant'` 消息。AI 消息作为隐藏锚点参与 `visibleRange` 计算但不显示在 UI 中，也不参与 activeMessageId 计算
 
 ## 文件树
 

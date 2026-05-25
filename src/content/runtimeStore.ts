@@ -1,4 +1,4 @@
-import type { AutoCollectProgress, CachedUserMessage, JumpState, RuntimeState } from '../shared/types';
+import type { AutoCollectProgress, CachedMessage, JumpState, RuntimeState } from '../shared/types';
 
 export class RuntimeStore {
   private state: RuntimeState = {
@@ -39,7 +39,7 @@ export class RuntimeStore {
     this.emit();
   }
 
-  setMessages(messages: CachedUserMessage[]): void {
+  setMessages(messages: CachedMessage[]): void {
     this.state = {
       ...this.state,
       messages: [...messages]

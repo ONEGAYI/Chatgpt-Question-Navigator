@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
-import type { CachedUserMessage } from '../shared/types';
+import type { CachedMessage } from '../shared/types';
 
 const MAX_VISIBLE = 7;
 const HALF_WINDOW = Math.floor(MAX_VISIBLE / 2);
 
 interface HoverState {
-  message: CachedUserMessage;
+  message: CachedMessage;
   rect: DOMRect;
   index: number;
 }
 
 interface MiniBarProps {
-  messages: CachedUserMessage[];
+  messages: CachedMessage[];
   activeMessageId: string | null;
   mountedIds: Set<string>;
-  onJump: (message: CachedUserMessage) => void;
+  onJump: (message: CachedMessage) => void;
   onExpand: () => void;
 }
 
-function getActiveIndex(messages: CachedUserMessage[], activeId: string | null): number {
+function getActiveIndex(messages: CachedMessage[], activeId: string | null): number {
   if (!activeId) return 0;
   const idx = messages.findIndex((m) => m.localMessageId === activeId);
   return idx >= 0 ? idx : 0;
@@ -61,7 +61,7 @@ export function MiniBar({ messages, activeMessageId, mountedIds, onJump, onExpan
     if (next) onJump(next);
   };
 
-  const handleMarkHover = (e: MouseEvent, message: CachedUserMessage, index: number) => {
+  const handleMarkHover = (e: MouseEvent, message: CachedMessage, index: number) => {
     const target = e.currentTarget as HTMLElement;
     setHover({ message, rect: target.getBoundingClientRect(), index });
   };

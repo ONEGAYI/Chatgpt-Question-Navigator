@@ -1,16 +1,16 @@
 import { memo } from 'preact/compat';
-import type { CachedUserMessage } from '../shared/types';
+import type { CachedMessage } from '../shared/types';
 import { splitByQuery } from '../shared/text';
 
 interface MessageItemProps {
-  message: CachedUserMessage;
+  message: CachedMessage;
   index: number;
   active: boolean;
   mounted: boolean;
   isJumping?: boolean;
   searchQuery: string;
-  onClick: (message: CachedUserMessage) => void;
-  onHoverStart?: (message: CachedUserMessage, rect: DOMRect) => void;
+  onClick: (message: CachedMessage) => void;
+  onHoverStart?: (message: CachedMessage, rect: DOMRect) => void;
   onHoverEnd?: () => void;
 }
 

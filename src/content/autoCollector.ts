@@ -1,4 +1,4 @@
-import type { AutoCollectIntent, AutoCollectPhase, AutoCollectProgress, CachedUserMessage, TurnFrame } from '../shared/types';
+import type { AutoCollectIntent, AutoCollectPhase, AutoCollectProgress, CachedMessage, TurnFrame } from '../shared/types';
 import { hashText } from '../shared/hash';
 import { toPreview, toSearchText, toAiPreview, toAiSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
@@ -299,7 +299,7 @@ export class AutoCollector {
     frame.lastKnownScrollRatio = this.scrollDriver.getScrollRatio();
   }
 
-  private buildAllMessages(conversationId: string): CachedUserMessage[] {
+  private buildAllMessages(conversationId: string): CachedMessage[] {
     const sortedFrames = [...this.frames.values()]
       .sort((a, b) => a.turnIndex - b.turnIndex);
 

@@ -1,7 +1,7 @@
-export interface CachedUserMessage {
+export interface CachedMessage {
   conversationId: string;
   localMessageId: string;
-  role: 'user' | 'assistant';  // TODO(#12): CachedUserMessage → CachedMessage
+  role: 'user' | 'assistant';  // TODO(#12): CachedMessage → CachedMessage
   textForSearch: string;
   preview: string;
   textHash: string;
@@ -16,7 +16,7 @@ export interface CachedUserMessage {
 export interface ConversationCache {
   conversationId: string;
   updatedAt: number;
-  messages: CachedUserMessage[];
+  messages: CachedMessage[];
   orderedIds: string[];
   orderMode?: 'incremental' | 'canonical';
 }
@@ -41,13 +41,13 @@ export interface ScannedUserMessageCandidate {
 }
 
 export interface ResolveResult {
-  allMessages: CachedUserMessage[];
+  allMessages: CachedMessage[];
   resolvedMounted: Set<string>;
   resolvedCandidates: Array<{
     localMessageId: string;
     candidateIndex: number;
   }>;
-  newOrUpdated: CachedUserMessage[];
+  newOrUpdated: CachedMessage[];
 }
 
 export type JumpState =
@@ -57,7 +57,7 @@ export type JumpState =
 
 export interface RuntimeState {
   conversationId: string | null;
-  messages: CachedUserMessage[];
+  messages: CachedMessage[];
   elementById: Map<string, HTMLElement>;
   mountedIds: Set<string>;
   activeMessageId: string | null;
@@ -74,7 +74,7 @@ export interface ScanResult {
   mountedIds: Set<string>;
   activeMessageId: string | null;
   visibleRange: VisibleRange | null;
-  newOrUpdated: CachedUserMessage[];
+  newOrUpdated: CachedMessage[];
 }
 
 // --- AutoCollector types ---
