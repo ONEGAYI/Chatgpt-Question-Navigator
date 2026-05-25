@@ -1,19 +1,20 @@
-import type { CachedMessage, ResolveResult, ScanResult, ScannedUserMessageCandidate, VisibleRange } from '../shared/types';
+import type { CachedMessage, ResolveResult, ScanResult, ScannedMessageCandidate, VisibleRange } from '../shared/types';
 import { hashText } from '../shared/hash';
-import { toPreview, toSearchText } from '../shared/text';
+import { toAiPreview, toAiSearchText, toPreview, toSearchText } from '../shared/text';
 import type { CacheStore } from './cacheStore';
-import type { DomAdapter } from './domAdapter';
+import { DomAdapter } from './domAdapter';
 import type { ScanDirection, ScanSegmentKind } from './orderList';
 import type { RuntimeStore } from './runtimeStore';
 import type { ScrollDriver } from './scrollDriver';
 import type { UserScrollDirection } from './scrollDriver';
 
 const MUTATION_DEBOUNCE_MS = 500;
+const STREAMING_DEBOUNCE_MS = 3000;
 const SCROLL_THROTTLE_MS = 300;
 const MIN_SEGMENT_GAP_PX = 320;
 
 interface ScannedCandidateSegment {
-  candidates: ScannedUserMessageCandidate[];
+  candidates: ScannedMessageCandidate[];
   direction: ScanDirection;
   kind: ScanSegmentKind;
 }
@@ -30,6 +31,7 @@ export class MessageScanner {
   private lastScanScrollTop: number | null = null;
   private lastObservedScrollTop: number | null = null;
   private lastObservedDirection: ScanDirection = 'unknown';
+  private rescanGeneration = 0;
 
   constructor(
     private readonly domAdapter: DomAdapter,
@@ -39,7 +41,7 @@ export class MessageScanner {
   ) {}
 
   start(): void {
-    this.mutationObserver = new MutationObserver(() => this.scheduleRescan());
+    this.mutationObserver = new MutationObserver((records) => this.handleMutations(records));
     this.mutationObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     this.cleanupScroll = this.scrollDriver.onScroll(() => this.scheduleScrollCapture());
     this.cleanupUserScroll = this.scrollDriver.onUserScroll((direction) => this.captureUserScrollDirection(direction));
@@ -63,6 +65,14 @@ export class MessageScanner {
     this.intersectionObserver?.disconnect();
     this.cleanupScroll?.();
     this.cleanupUserScroll?.();
+    if (this.mutationTimer !== null) {
+      window.clearTimeout(this.mutationTimer);
+      this.mutationTimer = null;
+    }
+    if (this.scrollTimer !== null) {
+      window.clearTimeout(this.scrollTimer);
+      this.scrollTimer = null;
+    }
     this.elementById.clear();
     this.mountedIds.clear();
     this.lastScanScrollTop = null;
@@ -71,6 +81,8 @@ export class MessageScanner {
   }
 
   async rescan(): Promise<ScanResult> {
+    this.rescanGeneration += 1;
+    const generation = this.rescanGeneration;
     this.scrollDriver.triggerRootCheck();
 
     const domConversationId = this.domAdapter.extractConversationId();
@@ -86,28 +98,84 @@ export class MessageScanner {
       this.runtimeStore.setMessages(cache?.messages ?? []);
     }
 
-    const elements = this.domAdapter.findUserMessages();
-    const candidates: ScannedUserMessageCandidate[] = [];
+    const turnElements = this.domAdapter.findTurnElements();
+    const candidates: ScannedMessageCandidate[] = [];
     const scrollTop = this.scrollDriver.getScrollTop();
     const scanDirection = this.getScanDirection(scrollTop);
 
-    for (let index = 0; index < elements.length; index += 1) {
-      const element = elements[index];
-      if (!element) continue;
-      const text = this.domAdapter.extractText(element);
-      if (!text) continue;
-      candidates.push({
-        observedDomMessageId: this.domAdapter.extractObservedId(element),
-        text,
-        textHash: await hashText(text),
-        preview: toPreview(text),
-        textForSearch: toSearchText(text),
-        scrollRatio: this.scrollDriver.getScrollRatio(),
-        scrollTop,
-        absoluteTop: this.scrollDriver.getAbsoluteTop(element),
-        element,
-        turnKey: this.domAdapter.findTurnKeyForElement(element),
-      });
+    for (let index = 0; index < turnElements.length; index += 1) {
+      const turnEl = turnElements[index];
+      if (!turnEl) continue;
+
+      const turnKey = this.domAdapter.extractTurnKey(turnEl);
+      if (!turnKey) continue;
+
+      const turnIndex = this.domAdapter.extractTurnIndex(turnKey);
+      if (turnIndex < 0) continue;
+
+      const role = this.domAdapter.extractTurnRole(turnEl);
+      if (role === 'unknown') continue;
+
+      const scrollRatio = this.scrollDriver.getScrollRatio();
+
+      if (role === 'user') {
+        // user: 使用 userEl 作为 element，保留现有 activeMessageId / 高亮 / scroll meta 行为
+        const userEl = this.domAdapter.findRoleElementInTurn(turnEl, 'user');
+        if (!userEl) continue;
+        const text = this.domAdapter.extractText(userEl);
+        if (!text) continue;
+
+        candidates.push({
+          observedDomMessageId: this.domAdapter.extractObservedId(userEl),
+          text,
+          textHash: await hashText(text),
+          preview: toPreview(text),
+          textForSearch: toSearchText(text),
+          scrollRatio,
+          scrollTop,
+          absoluteTop: this.scrollDriver.getAbsoluteTop(userEl),
+          element: userEl,
+          turnKey,
+          role: 'user',
+          turnIndex,
+        });
+      } else {
+        // assistant: 尝试从 DOM 提取文本；流式输出中则为空骨架
+        const assistantEl = this.domAdapter.findRoleElementInTurn(turnEl, 'assistant');
+        const text = assistantEl ? this.domAdapter.extractText(assistantEl) : '';
+
+        let textHash: string;
+        let preview: string;
+        let textForSearch: string;
+
+        if (text) {
+          textForSearch = toAiSearchText(text);
+          textHash = await hashText(textForSearch);
+          preview = toAiPreview(text);
+        } else {
+          textHash = await hashText(`assistant:${turnKey}`);
+          preview = '';
+          textForSearch = '';
+        }
+
+        console.log('[CQN] rescan: assistant anchor turnKey=', turnKey, 'turnIndex=', turnIndex,
+          'hasText=', !!text, 'preview=', preview.slice(0, 30));
+
+        candidates.push({
+          observedDomMessageId: null,
+          text,
+          textHash,
+          preview,
+          textForSearch,
+          scrollRatio,
+          scrollTop,
+          absoluteTop: this.scrollDriver.getAbsoluteTop(turnEl),
+          element: turnEl,
+          turnKey,
+          role: 'assistant',
+          turnIndex,
+        });
+      }
     }
 
     const candidateSegments = this.createCandidateSegments(candidates, scanDirection);
@@ -121,6 +189,8 @@ export class MessageScanner {
       }))
     );
     this.lastScanScrollTop = scrollTop;
+
+    if (generation !== this.rescanGeneration) return { mountedIds: new Set(), activeMessageId: null, visibleRange: null, newOrUpdated: [] };
 
     this.rebuildMountedMaps(result, sortedCandidates);
 
@@ -158,11 +228,27 @@ export class MessageScanner {
     this.cacheStore.updateMessageScrollMeta(target.localMessageId, scrollTop, scrollRatio);
   }
 
-  private scheduleRescan(): void {
+  private handleMutations(records: MutationRecord[]): void {
+    const hasNewTurn = records.some((record) =>
+      Array.from(record.addedNodes).some((node) =>
+        node instanceof HTMLElement
+        && (node.matches?.(DomAdapter.TURN_SELECTOR) || node.querySelector?.(DomAdapter.TURN_SELECTOR))
+      )
+    );
+
+    if (hasNewTurn) {
+      this.scheduleRescan();
+    } else {
+      this.scheduleRescan(STREAMING_DEBOUNCE_MS);
+    }
+  }
+
+  private scheduleRescan(debounceMs: number = MUTATION_DEBOUNCE_MS): void {
     if (this.mutationTimer !== null) window.clearTimeout(this.mutationTimer);
     this.mutationTimer = window.setTimeout(() => {
+      this.mutationTimer = null;
       void this.rescan().catch((error) => console.warn('[ChatGPT Navigator] rescan failed', error));
-    }, MUTATION_DEBOUNCE_MS);
+    }, debounceMs);
   }
 
   private scheduleScrollCapture(): void {
@@ -180,7 +266,7 @@ export class MessageScanner {
     }, SCROLL_THROTTLE_MS);
   }
 
-  private rebuildMountedMaps(result: ResolveResult, candidates: ScannedUserMessageCandidate[]): void {
+  private rebuildMountedMaps(result: ResolveResult, candidates: ScannedMessageCandidate[]): void {
     this.elementById.clear();
     this.mountedIds = new Set(result.resolvedMounted);
 
@@ -191,15 +277,15 @@ export class MessageScanner {
   }
 
   private createCandidateSegments(
-    candidates: ScannedUserMessageCandidate[],
+    candidates: ScannedMessageCandidate[],
     direction: ScanDirection
   ): ScannedCandidateSegment[] {
     const sorted = [...candidates].sort((a, b) => a.absoluteTop - b.absoluteTop);
     if (sorted.length === 0) return [];
 
     const threshold = Math.max(MIN_SEGMENT_GAP_PX, this.scrollDriver.getClientHeight() * 0.8);
-    const chunks: ScannedUserMessageCandidate[][] = [];
-    let current: ScannedUserMessageCandidate[] = [];
+    const chunks: ScannedMessageCandidate[][] = [];
+    let current: ScannedMessageCandidate[] = [];
 
     for (const candidate of sorted) {
       const previous = current[current.length - 1];

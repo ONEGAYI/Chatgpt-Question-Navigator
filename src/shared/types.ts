@@ -13,6 +13,8 @@ export interface CachedMessage {
   lastKnownScrollTop: number;
   lastKnownScrollRatio: number;
   orderKey: number;
+  turnKey?: string;
+  turnIndex?: number;
 }
 
 export interface ConversationCache {
@@ -29,7 +31,7 @@ export interface StorageMeta {
   lastCleanupAt: number;
 }
 
-export interface ScannedUserMessageCandidate {
+export interface ScannedMessageCandidate {
   observedDomMessageId: string | null;
   text: string;
   textHash: string;
@@ -40,7 +42,12 @@ export interface ScannedUserMessageCandidate {
   absoluteTop: number;
   element: HTMLElement;
   turnKey: string | null;
+  role: 'user' | 'assistant';
+  turnIndex: number;
 }
+
+/** @deprecated 使用 ScannedMessageCandidate */
+export type ScannedUserMessageCandidate = ScannedMessageCandidate;
 
 export interface ResolveResult {
   allMessages: CachedMessage[];
