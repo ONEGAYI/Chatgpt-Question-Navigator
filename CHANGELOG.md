@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-05-26
+
+侧栏新增拖拽调宽功能，同时丰富 README 使用说明文档。
+
+### 新功能
+
+- **侧栏展开模式支持拖拽调宽** — 在侧栏左侧边缘添加 4px 拖拽手柄，支持鼠标拖拽调整宽度（240-560px，默认 280px）。调整后的宽度通过 chrome.storage.local 持久化，页面刷新后自动恢复。内部元素（消息列表、搜索框、AI 消息）自适应宽度变化。Mini/折叠模式不受影响。（#23）
+
+### 其他改进
+
+- **README 使用说明文档完善** — 新增「首次对已有对话使用」「Popup 配置菜单」「如何中止跳转」三个使用说明章节；修正滚屏速率默认值描述（极速为默认档位）；添加安装后跳转链接和 Popup 截图
+
 ## [0.1.0] - 2025-05-25
 
 首个公开版本。实现了 ChatGPT 长对话页面的用户问题导航侧栏，包含完整的消息扫描与缓存、Skeleton-First Hydration 全量采集、渐进式远距离跳转、AI 锚点消息展示、Popup 缓存管理、可配置滚屏速率等核心功能。
@@ -54,4 +66,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **.claude 文件夹 gitignore** — 添加对 .claude 文件夹的排除
 
 <!-- 变更链接 -->
+[0.2.0]: https://github.com/ONEGAYI/Chatgpt-Question-Navigator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ONEGAYI/Chatgpt-Question-Navigator/commits/v0.1.0
