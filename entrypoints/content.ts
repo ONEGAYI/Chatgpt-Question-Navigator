@@ -179,7 +179,7 @@ export default defineContentScript({
     });
 
     // Popup 缓存管理消息监听
-    chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.type === 'CLEAR_CONVERSATION') {
         cacheStore.clearConversation(msg.id as string).then(() => {
           if (msg.id === runtimeStore.getSnapshot().conversationId) {
@@ -222,8 +222,9 @@ export default defineContentScript({
         const name = msg.name as ScrollProfileName;
         if (SCROLL_PROFILE_ORDER.includes(name)) {
           runtimeStore.setScrollProfile(name);
-          await chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: name });
-          sendResponse({ success: true });
+          chrome.storage.local.set({ [PROFILE_STORAGE_KEY]: name }).then(() => {
+            sendResponse({ success: true });
+          }).catch((err) => sendResponse({ success: false, error: String(err) }));
         } else {
           sendResponse({ success: false, error: 'Invalid profile name' });
         }
